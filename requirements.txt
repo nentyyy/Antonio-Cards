@@ -1,7 +1,6 @@
-aiogram==3.22.0
-SQLAlchemy==2.0.43
-aiosqlite==0.20.0
-pydantic
-pydantic-settings
-python-dotenv==1.1.1
-Pillow==11.3.0
+aiogram==3.4.1
+SQLAlchemy==2.0.29
+aiosqlite==0.19.0
+pydantic==1.10.13
+python-dotenv==1.0.1
+Pillow==10.2.0
