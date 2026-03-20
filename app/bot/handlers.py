@@ -227,10 +227,10 @@ async def screen_shop_item(message: Message, item_key: str) -> None:
     duration = seconds_to_hms(item.duration_seconds) if item.duration_seconds else "?"
     text = (
         f"{h('\U0001f6d2 \u0422\u043e\u0432\u0430\u0440')}\n"
-        f"?? *{item.title}*\n"
-        f"?? {item.description}\n\n"
-        f"?? \u0426\u0435\u043d\u0430:\n{price_text}\n"
-        f"? \u0421\u0440\u043e\u043a: {duration}"
+        f"📦 *{item.title}*\n"
+        f"📝 {item.description}\n\n"
+        f"💳 \u0426\u0435\u043d\u0430:\n{price_text}\n"
+        f"⏳ \u0421\u0440\u043e\u043a: {duration}"
     )
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     rows: list[list[InlineKeyboardButton]] = []
@@ -238,8 +238,8 @@ async def screen_shop_item(message: Message, item_key: str) -> None:
         rows.append([InlineKeyboardButton(text="\u041a\u0443\u043f\u0438\u0442\u044c \u0437\u0430 \u043c\u043e\u043d\u0435\u0442\u044b", callback_data=f"act:buy:{item.key}:coins")])
     if item.price_stars is not None:
         rows.append([InlineKeyboardButton(text="\u041a\u0443\u043f\u0438\u0442\u044c \u0437\u0430 \u0437\u0432\u0435\u0437\u0434\u044b \u0431\u043e\u0442\u0430", callback_data=f"act:buy:{item.key}:stars")])
-        rows.append([InlineKeyboardButton(text="? \u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c Telegram Stars", callback_data=f"act:buy_xtr:{item.key}")])
-    rows.append([InlineKeyboardButton(text="? \u041d\u0430\u0437\u0430\u0434", callback_data=f"nav:shop:{item.category_key}")])
+        rows.append([InlineKeyboardButton(text="⭐ \u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c Telegram Stars", callback_data=f"act:buy_xtr:{item.key}")])
+    rows.append([InlineKeyboardButton(text="🔙 \u041d\u0430\u0437\u0430\u0434", callback_data=f"nav:shop:{item.category_key}")])
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
     await message.answer(text, reply_markup=kb, parse_mode="Markdown")
 
@@ -258,8 +258,8 @@ async def screen_chest_detail(message: Message, chest_key: str) -> None:
     if chest.price_stars is not None:
         price_parts.append(f"{chest.price_stars}⭐")
     price = ' / '.join(price_parts) if price_parts else '—'
-    chest_title = f"{chest.emoji} {chest.title} ????????????"
-    text = f"{h(chest_title)}\n{chest.description}\n\n???? ????????: {price}\n???? ????????????????: {chest.open_count}\n???? ?????????????? ??????????: ?????????????????????????? ?? ??????????????."
+    chest_title = f"{chest.emoji} {chest.title} сундук"
+    text = f"{h(chest_title)}\n{chest.description}\n\n💳 Цена: {price}\n🎁 Открытий: {chest.open_count}\n🎯 Таблица дропа: настраивается в админке."
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='📦 Открыть', callback_data=f"act:chest:open:{chest.key}")], [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:chest')]])
     await message.answer(text, reply_markup=kb)
@@ -441,7 +441,7 @@ async def screen_admin_chest(message: Message, chest_key: str) -> None:
             return
         drops = (await session.scalars(select(BcChestDrop).where(BcChestDrop.chest_key == chest_key))).all()
     drop_lines = [f"• {d.rarity_key} ({d.weight:g})" for d in drops] or ['—']
-    text = f"{h('?? ??????')}\n????: `{c.key}`\n????????: {c.emoji} {c.title}\n????????: {c.description}\n????: {c.price_coins or '?'}?? / {c.price_stars or '?'}?\n????????: {c.open_count}\n\n????:\n" + '\n'.join(drop_lines)
+    text = f"{h('📦 Сундук')}\nКлюч: `{c.key}`\nНазвание: {c.emoji} {c.title}\nОписание: {c.description}\nЦена: {c.price_coins or '—'}🪙 / {c.price_stars or '—'}⭐\nОткрытий: {c.open_count}\n\nДроп:\n" + '\n'.join(drop_lines)
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='✏️ Редактировать', callback_data=f"act:admin:chest:edit:{c.key}")], [InlineKeyboardButton(text='🗑 Удалить', callback_data=f"act:admin:chest:delete:{c.key}")], [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin:chests')]])
     await message.answer(text, reply_markup=kb, parse_mode='Markdown')
@@ -463,14 +463,15 @@ async def screen_admin_card(message: Message, card_id: int) -> None:
     text = f"{h('🃏 Карточка')}\nID: `{card.id}`\nКлюч: `{card.key}`\nНазвание: {card.title}\nОписание: {card.description}\nСерия: {card.series}\nРедкость: {rarity_title}\nОчки: {card.base_points}\nМонеты: {card.base_coins}\nШанс: {card.drop_weight:g}\nЛимитка: {('да' if card.is_limited else 'нет')}\nПродажа: {('да' if card.is_sellable else 'нет')}\nАктивна: {('да' if card.is_active else 'нет')}\nСортировка: {card.sort}\nТеги: {tags}\nФото: {('загружено' if card.image_file_id else 'нет')}\nImage file id: {card.image_file_id or '—'}"
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text='✏️ Редактировать', callback_data=f"act:admin:card:edit:{card.id}")],
-        [InlineKeyboardButton(text='🖼 Обновить фото', callback_data=f"act:admin:card:photo:{card.id}")],
+        [InlineKeyboardButton(text='?? ?????????????', callback_data=f"act:admin:card:edit:{card.id}")],
+        [InlineKeyboardButton(text='?? ???????? ????', callback_data=f"act:admin:card:photo:{card.id}")],
+        [InlineKeyboardButton(text='?? ???????????', callback_data=f"act:admin:card:duplicate:{card.id}")],
         [
-            InlineKeyboardButton(text=('🟢 Активна' if card.is_active else '⚪ Неактивна'), callback_data=f"act:admin:card:toggle_active:{card.id}"),
-            InlineKeyboardButton(text=('💰 В продаже' if card.is_sellable else '🚫 Не продаётся'), callback_data=f"act:admin:card:toggle_sell:{card.id}"),
+            InlineKeyboardButton(text=('?? ???????' if card.is_active else '? ?????????'), callback_data=f"act:admin:card:toggle_active:{card.id}"),
+            InlineKeyboardButton(text=('?? ? ???????' if card.is_sellable else '?? ?? ?????????'), callback_data=f"act:admin:card:toggle_sell:{card.id}"),
         ],
-        [InlineKeyboardButton(text='🗑 Удалить', callback_data=f"act:admin:card:delete:{card.id}")],
-        [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin:cards')],
+        [InlineKeyboardButton(text='?? ???????', callback_data=f"act:admin:card:delete:{card.id}")],
+        [InlineKeyboardButton(text='?? ?????', callback_data='nav:admin:cards')],
     ])
     if card.image_file_id:
         await message.answer_photo(card.image_file_id, caption=text, reply_markup=kb, parse_mode='Markdown')
@@ -564,44 +565,44 @@ async def resolve_rarity_key(session, raw: str) -> str | None:
 async def card_rarity_hint(session) -> str:
     rows = (await session.scalars(select(BcRarity).order_by(BcRarity.sort))).all()
     if not rows:
-        return '???????? ??? ?? ???????.'
-    return '????????? ????????: ' + ', '.join(f"`{row.key}` ({row.emoji} {row.title})" for row in rows[:10])
+        return "\u0420\u0435\u0434\u043a\u043e\u0441\u0442\u0438 \u0435\u0449\u0451 \u043d\u0435 \u0441\u043e\u0437\u0434\u0430\u043d\u044b."
+    return "\u0414\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0435 \u0440\u0435\u0434\u043a\u043e\u0441\u0442\u0438: " + ", ".join(f"`{row.key}` ({row.emoji} {row.title})" for row in rows[:10])
 
 
 def card_wizard_prompt(mode: str, step: str, data: dict) -> str:
-    title = '?? ??????????? ????????'
+    title = "\U0001f0cf \u041a\u043e\u043d\u0441\u0442\u0440\u0443\u043a\u0442\u043e\u0440 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438"
     current = data.get(step)
     current_line = ''
     if mode == 'edit' and current not in (None, ''):
-        current_line = f"\n??????? ????????: `{current}`"
+        current_line = f"\n\u0422\u0435\u043a\u0443\u0449\u0435\u0435 \u0437\u043d\u0430\u0447\u0435\u043d\u0438\u0435: `{current}`"
     steps = CARD_WIZARD_STEPS.get(mode, CARD_WIZARD_STEPS['create'])
     step_index = (steps.index(step) + 1) if step in steps else 1
-    progress = f"??? {step_index}/{len(steps)}.\n"
+    progress = f"\u0428\u0430\u0433 {step_index}/{len(steps)}.\n"
     if step == 'key':
-        return f"{h(title)}\n{progress}??????? `key` ????????.\n??????: `rustblade`"
+        return f"{h(title)}\n{progress}\u0423\u043a\u0430\u0436\u0438\u0442\u0435 `key` \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.\n\u041f\u0440\u0438\u043c\u0435\u0440: `rustblade`"
     if step == 'title':
-        return f"{h(title)}\n{progress}??????? ???????? ????????.{current_line}"
+        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.{current_line}"
     if step == 'description':
-        return f"{h(title)}\n{progress}??????? ???????? ????????.{current_line}"
+        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043e\u043f\u0438\u0441\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.{current_line}"
     if step == 'rarity_key':
-        return f"{h(title)}\n{progress}??????? `rarity_key`.\n??????: `common`, `rare`, `legendary`.{current_line}"
+        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 `rarity_key`.\n\u041f\u0440\u0438\u043c\u0435\u0440: `common`, `rare`, `legendary`.{current_line}"
     if step == 'series':
-        return f"{h(title)}\n{progress}??????? ????? ????????.{current_line}\n??? ??????????? ????? ????????? `Core`."
+        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0441\u0435\u0440\u0438\u044e \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.{current_line}\n\u0414\u043b\u044f \u0441\u0442\u0430\u043d\u0434\u0430\u0440\u0442\u043d\u043e\u0439 \u0441\u0435\u0440\u0438\u0438 \u043e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 `Core`."
     if step == 'points':
-        return f"{h(title)}\n{progress}??????? ??????? ????.{current_line}"
+        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0431\u0430\u0437\u043e\u0432\u044b\u0435 \u043e\u0447\u043a\u0438.{current_line}"
     if step == 'coins':
-        return f"{h(title)}\n{progress}??????? ??????? ? ???????.{current_line}"
+        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043d\u0430\u0433\u0440\u0430\u0434\u0443 \u0432 \u043c\u043e\u043d\u0435\u0442\u0430\u0445.{current_line}"
     if step == 'drop_weight':
-        return f"{h(title)}\n{progress}??????? ??? ?????????.\n??????: `1` ??? `0.35`.{current_line}"
+        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0432\u0435\u0441 \u0432\u044b\u043f\u0430\u0434\u0435\u043d\u0438\u044f.\n\u041f\u0440\u0438\u043c\u0435\u0440: `1` \u0438\u043b\u0438 `0.35`.{current_line}"
     if step == 'is_limited':
-        return f"{h(title)}\n{progress}?????????????? ?????????\n????????? `1/0` ??? `??/???`.{current_line}"
+        return f"{h(title)}\n{progress}\u041b\u0438\u043c\u0438\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u0430\u044f \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0430?\n\u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 `1/0` \u0438\u043b\u0438 `\u0434\u0430/\u043d\u0435\u0442`.{current_line}"
     if step == 'is_sellable':
-        return f"{h(title)}\n{progress}????????? ????????\n????????? `1/0` ??? `??/???`.{current_line}"
+        return f"{h(title)}\n{progress}\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044c \u043f\u0440\u043e\u0434\u0430\u0436\u0443?\n\u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 `1/0` \u0438\u043b\u0438 `\u0434\u0430/\u043d\u0435\u0442`.{current_line}"
     if step == 'is_active':
-        return f"{h(title)}\n{progress}??????? ???????? ?????????\n????????? `1/0` ??? `??/???`.{current_line}"
+        return f"{h(title)}\n{progress}\u0421\u0434\u0435\u043b\u0430\u0442\u044c \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0443 \u0430\u043a\u0442\u0438\u0432\u043d\u043e\u0439?\n\u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 `1/0` \u0438\u043b\u0438 `\u0434\u0430/\u043d\u0435\u0442`.{current_line}"
     if step == 'sort':
-        return f"{h(title)}\n{progress}??????? ??????????.{current_line}"
-    return f"{h(title)}\n{progress}????????? ???? ???????? ??????????.\n???? ???? ?? ?????, ????????? `-` ??? ??????? ?????? ????????."
+        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0441\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u043a\u0443.{current_line}"
+    return f"{h(title)}\n{progress}\u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 \u0444\u043e\u0442\u043e \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435\u043c.\n\u0415\u0441\u043b\u0438 \u0444\u043e\u0442\u043e \u043d\u0435 \u043d\u0443\u0436\u043d\u043e, \u043e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 `-` \u0438\u043b\u0438 \u043d\u0430\u0436\u043c\u0438\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0443 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u0430."
 
 
 async def save_card_wizard_payload(session, service: BrawlCardsService, user_id: int, payload: dict, *, photo_file_id: str | None=None) -> tuple[bool, str, int | None]:
@@ -611,20 +612,20 @@ async def save_card_wizard_payload(session, service: BrawlCardsService, user_id:
         data['photo'] = photo_file_id
     rarity_key = str(data.get('rarity_key') or '').strip()
     if not rarity_key or await session.get(BcRarity, rarity_key) is None:
-        return (False, '???????? ?? ???????. ????????? rarity_key.', None)
+        return (False, "\u0420\u0435\u0434\u043a\u043e\u0441\u0442\u044c \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 rarity_key.", None)
     image_file_id = str(data.get('photo') or '').strip() or None
     title = str(data.get('title') or '').strip()
     description = str(data.get('description') or '').strip()
     if not title:
-        return (False, '????? ??????? ???????? ????????.', None)
+        return (False, "\u041d\u0443\u0436\u043d\u043e \u0443\u043a\u0430\u0437\u0430\u0442\u044c \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.", None)
     if not description:
-        return (False, '????? ??????? ???????? ????????.', None)
+        return (False, "\u041d\u0443\u0436\u043d\u043e \u0443\u043a\u0430\u0437\u0430\u0442\u044c \u043e\u043f\u0438\u0441\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.", None)
     if mode == 'create':
         key = str(data.get('key') or '').strip()
         if not key:
-            return (False, '????? key ????????.', None)
+            return (False, "\u041d\u0443\u0436\u0435\u043d key \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.", None)
         if await session.scalar(select(BcCard.id).where(BcCard.key == key)) is not None:
-            return (False, '???????? ? ????? key ??? ??????????.', None)
+            return (False, "\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0430 \u0441 \u0442\u0430\u043a\u0438\u043c key \u0443\u0436\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442.", None)
         card = BcCard(
             key=key,
             title=title,
@@ -649,11 +650,11 @@ async def save_card_wizard_payload(session, service: BrawlCardsService, user_id:
         session.add(card)
         await session.flush()
         await service.clear_input_state(user_id)
-        return (True, '???????? ???????.', card.id)
+        return (True, "\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0430.", card.id)
     card_id = int(payload.get('id') or 0)
     card = await session.get(BcCard, card_id)
     if card is None:
-        return (False, '???????? ?? ???????.', None)
+        return (False, "Карточка не найдена.", None)
     card.title = title
     card.description = description
     card.rarity_key = rarity_key
@@ -668,7 +669,7 @@ async def save_card_wizard_payload(session, service: BrawlCardsService, user_id:
     card.image_file_id = image_file_id
     await session.flush()
     await service.clear_input_state(user_id)
-    return (True, '???????? ?????????.', card.id)
+    return (True, "\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0430 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0430.", card.id)
 
 async def render_rp_screen(message: Message) -> None:
     async with SessionLocal() as session:
@@ -1021,24 +1022,24 @@ async def render_economy_screen(message: Message) -> None:
         service = BrawlCardsService(session)
         overview = await service.economy_overview(message.from_user.id)
     premium_until = overview["premium_until"]
-    premium_text = premium_until.isoformat(timespec="minutes") if premium_until else "?? ???????"
+    premium_text = premium_until.isoformat(timespec="minutes") if premium_until else "не активен"
     lines = [
-        h("?? ?????????"),
-        "????? ???????? ??? ??????, ???????? ? ?????????? ? ????????? ?????????.",
+        h("💼 Экономика"),
+        "Здесь собрана сводка по валютам, карточкам, бустерам и активным кулдаунам.",
         "",
-        f"?? ??????: {overview['coins']}",
-        f"? ??????: {overview['stars']}",
-        f"? ????: {overview['points']}",
-        f"?? ???????: {overview['level']}",
-        f"?? ?????: {overview['cards_total']} / ?????????? {overview['cards_unique']}",
-        f"? ???????? ???????: {overview['boosters_active']}",
-        f"?? ??????? ?????: {seconds_to_hms(int(overview['card_cooldown']))}",
-        f"?? ??????? ??????: {seconds_to_hms(int(overview['bonus_cooldown']))}",
-        f"?? Premium: {premium_text}",
+        f"🪙 Монеты: {overview['coins']}",
+        f"⭐ Звёзды: {overview['stars']}",
+        f"✨ Очки: {overview['points']}",
+        f"🏅 Уровень: {overview['level']}",
+        f"🃏 Карты: {overview['cards_total']} / уникальных {overview['cards_unique']}",
+        f"⚡ Активные бустеры: {overview['boosters_active']}",
+        f"🕒 Кулдаун карты: {seconds_to_hms(int(overview['card_cooldown']))}",
+        f"🎁 Кулдаун бонуса: {seconds_to_hms(int(overview['bonus_cooldown']))}",
+        f"💎 Premium: {premium_text}",
     ]
     await message.answer(
         "\n".join(lines),
-        reply_markup=ik_list_nav([("shop", "?? ? ???????"), ("premium", "?? Premium"), ("top", "?? ???")], prefix="nav", back_to="profile"),
+        reply_markup=ik_list_nav([("shop", "🛒 В магазин"), ("premium", "💎 Premium"), ("top", "🏆 В топ")], prefix="nav", back_to="profile"),
     )
 
 
@@ -1047,18 +1048,18 @@ async def screen_shop_offers(message: Message) -> None:
         service = BrawlCardsService(session)
         items = await service.shop_offers(8)
     if not items:
-        await message.answer(f"{h('?? ??????')}\n???? ??? ???????? ???????????.", reply_markup=ik_shop_categories())
+        await message.answer(f"{h('🔥 Офферы')}\nПока нет активных предложений.", reply_markup=ik_shop_categories())
         return
-    lines = [h("?? ??????"), "??????? ???????????, ??????? ????? ??????? ? ???? ???:"]
+    lines = [h("🔥 Офферы"), "Здесь собраны актуальные предложения, которые можно купить прямо сейчас:"]
     buttons: list[tuple[str, str]] = []
     for item in items:
         price_parts: list[str] = []
         if item.price_coins is not None:
-            price_parts.append(f"{item.price_coins}??")
+            price_parts.append(f"{item.price_coins}🪙")
         if item.price_stars is not None:
-            price_parts.append(f"{item.price_stars}?")
-        price_text = " / ".join(price_parts) if price_parts else "?????????"
-        lines.append(f"? {item.title} ? {price_text}")
+            price_parts.append(f"{item.price_stars}⭐")
+        price_text = " / ".join(price_parts) if price_parts else "бесплатно"
+        lines.append(f"• {item.title} — {price_text}")
         buttons.append((item.key, item.title[:32]))
     await message.answer("\n".join(lines), reply_markup=ik_list_nav(buttons, prefix="nav:shop_item", back_to="shop"))
 
@@ -1068,15 +1069,15 @@ async def screen_events(message: Message) -> None:
         service = BrawlCardsService(session)
         events = await service.active_events()
     if not events:
-        await message.answer(f"{h('?? ??????')}\n?????? ???????? ??????? ???.", reply_markup=ik_shop_categories())
+        await message.answer(f"{h('🎉 Ивенты')}\nСейчас активных событий нет.", reply_markup=ik_shop_categories())
         return
-    lines = [h("?? ??????"), "???????? ??????? ? ????????? ?????? ???????:"]
+    lines = [h("🎉 Ивенты"), "Активные события и специальные режимы:"]
     for event in events[:10]:
-        ends = event.ends_at.isoformat(timespec="minutes") if event.ends_at else "??? ?????"
-        lines.append(f"? {event.title}\n{event.description[:120]}\n??: {ends}")
+        ends = event.ends_at.isoformat(timespec="minutes") if event.ends_at else "без срока"
+        lines.append(f"• {event.title}\n{event.description[:120]}\nДо: {ends}")
     await message.answer(
         "\n".join(lines),
-        reply_markup=ik_list_nav([("shop", "?? ???????"), ("tasks", "?? ???????"), ("bonus", "?? ?????")], prefix="nav", back_to="main"),
+        reply_markup=ik_list_nav([("shop", "🛒 Магазин"), ("tasks", "📜 Задания"), ("bonus", "🎁 Бонус")], prefix="nav", back_to="main"),
     )
 
 
@@ -1281,7 +1282,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 item_key = action.split(':', maxsplit=2)[2]
                 item = await service.shop_item(item_key)
                 if item is None or item.price_stars is None:
-                    await callback.message.answer(f"{h('Telegram Stars')}\n????? ?????????? ??? ?????? Telegram Stars.", reply_markup=main_menu())
+                    await callback.message.answer(f"{h('Telegram Stars')}\nТовар недоступен для оплаты Telegram Stars.", reply_markup=main_menu())
                     return
                 await callback.message.answer_invoice(
                     title=item.title[:32],
@@ -1505,6 +1506,47 @@ async def on_action(callback: CallbackQuery) -> None:
                 await callback.message.answer(resp, reply_markup=main_menu())
                 if ok and card_id:
                     await screen_admin_card(callback.message, card_id)
+                return
+            if action.startswith('act:admin:card:duplicate:'):
+                if not is_admin_id(callback.from_user.id):
+                    await callback.message.answer('Access denied', reply_markup=main_menu())
+                    return
+                card_id = int(action.split(':', maxsplit=4)[4])
+                source_card = await session.get(BcCard, card_id)
+                if source_card is None:
+                    await callback.message.answer('Карточка не найдена.', reply_markup=main_menu())
+                    return
+                base_key = f"{source_card.key}_copy"
+                new_key = base_key
+                suffix = 2
+                while await session.scalar(select(BcCard.id).where(BcCard.key == new_key)) is not None:
+                    new_key = f"{base_key}_{suffix}"
+                    suffix += 1
+                clone = BcCard(
+                    key=new_key,
+                    title=f"{source_card.title} COPY",
+                    description=source_card.description,
+                    rarity_key=source_card.rarity_key,
+                    series=source_card.series,
+                    tags=list(source_card.tags or []),
+                    base_points=source_card.base_points,
+                    base_coins=source_card.base_coins,
+                    drop_weight=source_card.drop_weight,
+                    is_limited=source_card.is_limited,
+                    limited_series_id=source_card.limited_series_id,
+                    event_id=source_card.event_id,
+                    image_file_id=source_card.image_file_id,
+                    image_url=source_card.image_url,
+                    media_id=source_card.media_id,
+                    is_sellable=source_card.is_sellable,
+                    is_active=False,
+                    sort=source_card.sort + 1,
+                    meta=dict(source_card.meta or {}),
+                )
+                session.add(clone)
+                await session.flush()
+                await callback.message.answer(f"{h('🃏 Карточка')}\nСоздан дубликат: `{clone.key}`", parse_mode='Markdown', reply_markup=main_menu())
+                await screen_admin_card(callback.message, clone.id)
                 return
             if action.startswith('act:admin:card:photo:'):
                 if not is_admin_id(callback.from_user.id):
@@ -1783,10 +1825,10 @@ async def on_successful_payment(message: Message) -> None:
                 payment_charge_id=message.successful_payment.telegram_payment_charge_id,
                 amount_paid=int(message.successful_payment.total_amount),
             )
-    title = h("?????? ?????????") if ok else h("?????? ????????")
+    title = h("Оплата успешна") if ok else h("Ошибка оплаты")
     charge_id = message.successful_payment.telegram_payment_charge_id
     await message.answer(
-        f"{title}\n{resp}\n\n?????: {message.successful_payment.total_amount} XTR\nCharge ID: `{charge_id}`",
+        f"{title}\n{resp}\n\nСумма: {message.successful_payment.total_amount} XTR\nCharge ID: `{charge_id}`",
         reply_markup=main_menu(is_admin=is_admin_id(message.from_user.id)),
         parse_mode="Markdown",
     )
@@ -1934,13 +1976,13 @@ async def on_photo_input(message: Message) -> None:
             data = dict(payload.get('data') or {})
             steps = CARD_WIZARD_STEPS.get(mode, CARD_WIZARD_STEPS['create'])
             raw = message.text.strip()
-            if raw.lower() in {'??????', 'cancel', '/cancel'}:
+            if raw.lower() in {'отмена', 'cancel', '/cancel'}:
                 async with session.begin():
                     await service.clear_input_state(message.from_user.id)
-                await message.answer(f"{h('?? ??????????? ????????')}\n???????? ??? ?????????????? ???????? ????????.", reply_markup=main_menu())
+                await message.answer(f"{h('🃏 Конструктор карточки')}\nСоздание или редактирование карточки отменено.", reply_markup=main_menu())
                 return
             if not step or step not in steps:
-                await message.answer('????????? ???????????? ???????? ??????????.', reply_markup=main_menu())
+                await message.answer('Состояние конструктора карточки повреждено.', reply_markup=main_menu())
                 return
             if mode == 'edit' and raw == '-' and step != 'photo':
                 value = data.get(step)
@@ -1948,41 +1990,41 @@ async def on_photo_input(message: Message) -> None:
                 if step == 'key':
                     value = raw.lower().replace(' ', '_')
                     if not value:
-                        await message.answer('????? key ????????.', reply_markup=ik_admin_card_wizard())
+                        await message.answer('Нужен key карточки.', reply_markup=ik_admin_card_wizard())
                         return
                 elif step in {'title', 'description', 'series'}:
                     value = raw
                     if step in {'title', 'description'} and not value:
-                        await message.answer('??? ???? ???????????.', reply_markup=ik_admin_card_wizard())
+                        await message.answer('Это поле обязательно.', reply_markup=ik_admin_card_wizard())
                         return
                 elif step == 'rarity_key':
                     resolved = await resolve_rarity_key(session, raw)
                     if resolved is None:
                         hint = await card_rarity_hint(session)
-                        await message.answer(f"???????? ?? ???????.\n\n{hint}", parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
+                        await message.answer(f"Редкость не найдена.\n\n{hint}", parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
                         return
                     value = resolved
                 elif step in {'points', 'coins', 'sort'}:
                     try:
                         value = int(raw)
                     except ValueError:
-                        await message.answer('????? ????? ?????.', reply_markup=ik_admin_card_wizard())
+                        await message.answer('Нужно целое число.', reply_markup=ik_admin_card_wizard())
                         return
                 elif step == 'drop_weight':
                     try:
                         value = float(raw)
                     except ValueError:
-                        await message.answer('????? ?????. ??????: `1` ??? `0.35`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
+                        await message.answer('Нужно число. Пример: `1` или `0.35`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
                         return
                 elif step in {'is_limited', 'is_sellable', 'is_active'}:
                     normalized = raw.lower()
-                    if normalized not in {'0', '1', '??', '???'}:
-                        await message.answer('????? `1/0` ??? `??/???`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
+                    if normalized not in {'0', '1', 'да', 'нет'}:
+                        await message.answer('Нужно `1/0` или `да/нет`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
                         return
-                    value = 1 if normalized in {'1', '??'} else 0
+                    value = 1 if normalized in {'1', 'да'} else 0
                 elif step == 'photo':
                     if raw != '-':
-                        await message.answer('?? ???? ???? ????????? ???? ??? `-`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard(can_skip_photo=True))
+                        await message.answer('На этом шаге отправьте фото или `-`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard(can_skip_photo=True))
                         return
                     value = data.get('photo') or ''
                 else:
