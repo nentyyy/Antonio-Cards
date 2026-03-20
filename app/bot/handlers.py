@@ -4,7 +4,7 @@ from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, FSInputFile, LabeledPrice, Message, PreCheckoutQuery
 from sqlalchemy import and_, func, select
-from app.bot.keyboards import BTN_ADMIN, BTN_BONUS, BTN_CHEST, BTN_GAMES, BTN_GET_CARD, BTN_MARRIAGE, BTN_MARKET, BTN_PREMIUM, BTN_PROFILE, BTN_QUOTE, BTN_RP, BTN_SETTINGS, BTN_SHOP, BTN_STICKER, BTN_TASKS, BTN_TOP, MAIN_MENU_BUTTONS, ik_admin_main, ik_bonus_tasks, ik_games_menu, ik_game_stakes, ik_get_card, ik_list_nav, ik_marriage_menu, ik_marriage_proposal, ik_market_lot_actions, ik_market_menu, ik_nick, ik_profile, ik_quote_menu, ik_rp_actions, ik_rp_categories, ik_shop_categories, ik_settings, ik_sticker_menu, ik_top_select, ik_nav, main_menu
+from app.bot.keyboards import BTN_ADMIN, BTN_BONUS, BTN_CHEST, BTN_GAMES, BTN_GET_CARD, BTN_MARRIAGE, BTN_MARKET, BTN_PREMIUM, BTN_PROFILE, BTN_QUOTE, BTN_RP, BTN_SETTINGS, BTN_SHOP, BTN_STICKER, BTN_TASKS, BTN_TOP, MAIN_MENU_BUTTONS, ik_admin_card_wizard, ik_admin_main, ik_bonus_tasks, ik_games_menu, ik_game_stakes, ik_get_card, ik_list_nav, ik_marriage_menu, ik_marriage_proposal, ik_market_lot_actions, ik_market_menu, ik_nick, ik_profile, ik_quote_menu, ik_rp_actions, ik_rp_categories, ik_shop_categories, ik_settings, ik_sticker_menu, ik_top_select, ik_nav, main_menu
 from app.config import get_settings
 from app.db.models import BcActiveBooster, BcAuditLog, BcBonusTask, BcBooster, BcCard, BcCardInstance, BcChest, BcChestDrop, BcEvent, BcInputState, BcLimitedSeries, BcMarriageProposal, BcMedia, BcMarketLot, BcPermission, BcRole, BcRolePermission, BcRPAction, BcRPCategory, BcRarity, BcShopCategory, BcShopItem, BcTask, BcUserRole, BcUserState, BcUserSettings, Marriage, User, UserProfile
 from app.db.session import SessionLocal
@@ -544,37 +544,64 @@ CARD_WIZARD_STEPS: dict[str, list[str]] = {
 }
 
 
+async def resolve_rarity_key(session, raw: str) -> str | None:
+    value = raw.strip()
+    if not value:
+        return None
+    rarity = await session.get(BcRarity, value)
+    if rarity is not None:
+        return rarity.key
+    rows = (await session.scalars(select(BcRarity))).all()
+    lowered = value.lower()
+    for row in rows:
+        if row.title.lower() == lowered:
+            return row.key
+        if f"{row.emoji} {row.title}".lower() == lowered:
+            return row.key
+    return None
+
+
+async def card_rarity_hint(session) -> str:
+    rows = (await session.scalars(select(BcRarity).order_by(BcRarity.sort))).all()
+    if not rows:
+        return '???????? ??? ?? ???????.'
+    return '????????? ????????: ' + ', '.join(f"`{row.key}` ({row.emoji} {row.title})" for row in rows[:10])
+
+
 def card_wizard_prompt(mode: str, step: str, data: dict) -> str:
-    title = '🃏 Конструктор карточки'
+    title = '?? ??????????? ????????'
     current = data.get(step)
     current_line = ''
     if mode == 'edit' and current not in (None, ''):
-        current_line = f"\nТекущее значение: `{current}`"
+        current_line = f"\n??????? ????????: `{current}`"
+    steps = CARD_WIZARD_STEPS.get(mode, CARD_WIZARD_STEPS['create'])
+    step_index = (steps.index(step) + 1) if step in steps else 1
+    progress = f"??? {step_index}/{len(steps)}.\n"
     if step == 'key':
-        return f"{h(title)}\nШаг 1. Укажите `key` карточки.\nПример: `rustblade`"
+        return f"{h(title)}\n{progress}??????? `key` ????????.\n??????: `rustblade`"
     if step == 'title':
-        return f"{h(title)}\nВведите название карточки.{current_line}"
+        return f"{h(title)}\n{progress}??????? ???????? ????????.{current_line}"
     if step == 'description':
-        return f"{h(title)}\nВведите описание карточки.{current_line}"
+        return f"{h(title)}\n{progress}??????? ???????? ????????.{current_line}"
     if step == 'rarity_key':
-        return f"{h(title)}\nВведите `rarity_key`.\nПример: `common`, `rare`, `legendary`.{current_line}"
+        return f"{h(title)}\n{progress}??????? `rarity_key`.\n??????: `common`, `rare`, `legendary`.{current_line}"
     if step == 'series':
-        return f"{h(title)}\nВведите серию карточки.{current_line}\nДля стандартной серии отправьте `Core`."
+        return f"{h(title)}\n{progress}??????? ????? ????????.{current_line}\n??? ??????????? ????? ????????? `Core`."
     if step == 'points':
-        return f"{h(title)}\nВведите базовые очки.{current_line}"
+        return f"{h(title)}\n{progress}??????? ??????? ????.{current_line}"
     if step == 'coins':
-        return f"{h(title)}\nВведите награду в монетах.{current_line}"
+        return f"{h(title)}\n{progress}??????? ??????? ? ???????.{current_line}"
     if step == 'drop_weight':
-        return f"{h(title)}\nВведите вес выпадения.\nПример: `1` или `0.35`.{current_line}"
+        return f"{h(title)}\n{progress}??????? ??? ?????????.\n??????: `1` ??? `0.35`.{current_line}"
     if step == 'is_limited':
-        return f"{h(title)}\nЛимитированная карточка?\nОтправьте `1` или `0`.{current_line}"
+        return f"{h(title)}\n{progress}?????????????? ?????????\n????????? `1/0` ??? `??/???`.{current_line}"
     if step == 'is_sellable':
-        return f"{h(title)}\nРазрешить продажу?\nОтправьте `1` или `0`.{current_line}"
+        return f"{h(title)}\n{progress}????????? ????????\n????????? `1/0` ??? `??/???`.{current_line}"
     if step == 'is_active':
-        return f"{h(title)}\nСделать карточку активной?\nОтправьте `1` или `0`.{current_line}"
+        return f"{h(title)}\n{progress}??????? ???????? ?????????\n????????? `1/0` ??? `??/???`.{current_line}"
     if step == 'sort':
-        return f"{h(title)}\nВведите сортировку.{current_line}"
-    return f"{h(title)}\nОтправьте фото карточки сообщением.\nЕсли фото не нужно, отправьте `-`."
+        return f"{h(title)}\n{progress}??????? ??????????.{current_line}"
+    return f"{h(title)}\n{progress}????????? ???? ???????? ??????????.\n???? ???? ?? ?????, ????????? `-` ??? ??????? ?????? ????????."
 
 
 async def save_card_wizard_payload(session, service: BrawlCardsService, user_id: int, payload: dict, *, photo_file_id: str | None=None) -> tuple[bool, str, int | None]:
@@ -584,18 +611,24 @@ async def save_card_wizard_payload(session, service: BrawlCardsService, user_id:
         data['photo'] = photo_file_id
     rarity_key = str(data.get('rarity_key') or '').strip()
     if not rarity_key or await session.get(BcRarity, rarity_key) is None:
-        return (False, 'Редкость не найдена.', None)
+        return (False, '???????? ?? ???????. ????????? rarity_key.', None)
     image_file_id = str(data.get('photo') or '').strip() or None
+    title = str(data.get('title') or '').strip()
+    description = str(data.get('description') or '').strip()
+    if not title:
+        return (False, '????? ??????? ???????? ????????.', None)
+    if not description:
+        return (False, '????? ??????? ???????? ????????.', None)
     if mode == 'create':
         key = str(data.get('key') or '').strip()
         if not key:
-            return (False, 'Нужен key карточки.', None)
+            return (False, '????? key ????????.', None)
         if await session.scalar(select(BcCard.id).where(BcCard.key == key)) is not None:
-            return (False, 'Карточка с таким key уже существует.', None)
+            return (False, '???????? ? ????? key ??? ??????????.', None)
         card = BcCard(
             key=key,
-            title=str(data.get('title') or '').strip(),
-            description=str(data.get('description') or '').strip(),
+            title=title,
+            description=description,
             rarity_key=rarity_key,
             series=str(data.get('series') or 'Core').strip() or 'Core',
             tags=[],
@@ -616,13 +649,13 @@ async def save_card_wizard_payload(session, service: BrawlCardsService, user_id:
         session.add(card)
         await session.flush()
         await service.clear_input_state(user_id)
-        return (True, 'Карточка создана.', card.id)
+        return (True, '???????? ???????.', card.id)
     card_id = int(payload.get('id') or 0)
     card = await session.get(BcCard, card_id)
     if card is None:
-        return (False, 'Карточка не найдена.', None)
-    card.title = str(data.get('title') or '').strip()
-    card.description = str(data.get('description') or '').strip()
+        return (False, '???????? ?? ???????.', None)
+    card.title = title
+    card.description = description
     card.rarity_key = rarity_key
     card.series = str(data.get('series') or 'Core').strip() or 'Core'
     card.base_points = int(data.get('points') or 0)
@@ -635,7 +668,7 @@ async def save_card_wizard_payload(session, service: BrawlCardsService, user_id:
     card.image_file_id = image_file_id
     await session.flush()
     await service.clear_input_state(user_id)
-    return (True, 'Карточка обновлена.', card.id)
+    return (True, '???????? ?????????.', card.id)
 
 async def render_rp_screen(message: Message) -> None:
     async with SessionLocal() as session:
@@ -1411,7 +1444,12 @@ async def on_action(callback: CallbackQuery) -> None:
                     await callback.message.answer('Access denied', reply_markup=main_menu())
                     return
                 await service.set_input_state(callback.from_user.id, 'admin_card_wizard', {'mode': 'create', 'step': 'key', 'data': {}})
-                await callback.message.answer(card_wizard_prompt('create', 'key', {}), parse_mode='Markdown', reply_markup=main_menu())
+                rarity_hint = await card_rarity_hint(session)
+                await callback.message.answer(
+                    f"{card_wizard_prompt('create', 'key', {})}\n\n{rarity_hint}\n\nДля отмены нажмите кнопку ниже.",
+                    parse_mode='Markdown',
+                    reply_markup=ik_admin_card_wizard(),
+                )
                 return
             if action.startswith('act:admin:card:edit:'):
                 if not is_admin_id(callback.from_user.id):
@@ -1440,8 +1478,33 @@ async def on_action(callback: CallbackQuery) -> None:
                 await callback.message.answer(
                     f"{h('🃏 Редактор карточки')}\nПошаговое редактирование начато.\nНа любом текстовом шаге отправьте `-`, чтобы оставить текущее значение.\n\n{card_wizard_prompt('edit', 'title', data)}",
                     parse_mode='Markdown',
-                    reply_markup=main_menu(),
+                    reply_markup=ik_admin_card_wizard(),
                 )
+                return
+            if action == 'act:admin:card:wizard:cancel':
+                if not is_admin_id(callback.from_user.id):
+                    await callback.message.answer('Access denied', reply_markup=main_menu())
+                    return
+                await service.clear_input_state(callback.from_user.id)
+                await callback.message.answer(f"{h('🃏 Конструктор карточки')}\nСоздание или редактирование карточки отменено.", reply_markup=main_menu())
+                return
+            if action == 'act:admin:card:wizard:skip_photo':
+                if not is_admin_id(callback.from_user.id):
+                    await callback.message.answer('Access denied', reply_markup=main_menu())
+                    return
+                state = await service.get_input_state(callback.from_user.id)
+                if state is None or state.state != 'admin_card_wizard':
+                    await callback.message.answer(f"{h('🃏 Конструктор карточки')}\nНет активного шага с фото.", reply_markup=main_menu())
+                    return
+                payload = dict(state.payload or {})
+                if str(payload.get('step') or '') != 'photo':
+                    await callback.message.answer(f"{h('🃏 Конструктор карточки')}\nПропуск доступен только на шаге с фото.", reply_markup=main_menu())
+                    return
+                async with session.begin():
+                    ok, resp, card_id = await save_card_wizard_payload(session, service, callback.from_user.id, payload)
+                await callback.message.answer(resp, reply_markup=main_menu())
+                if ok and card_id:
+                    await screen_admin_card(callback.message, card_id)
                 return
             if action.startswith('act:admin:card:photo:'):
                 if not is_admin_id(callback.from_user.id):
@@ -1862,162 +1925,6 @@ async def on_photo_input(message: Message) -> None:
                 await screen_admin_rp_action(message, key)
                 return
         if state.state == 'admin_card_wizard':
-            payload = dict(state.payload or {})
-            if str(payload.get('step') or '') != 'photo':
-                return
-            async with session.begin():
-                ok, resp, card_id = await save_card_wizard_payload(session, service, message.from_user.id, payload, photo_file_id=file_id)
-            await message.answer(resp, reply_markup=main_menu())
-            if ok and card_id:
-                await screen_admin_card(message, card_id)
-            return
-
-
-@router.message()
-async def on_text_input(message: Message) -> None:
-    if message.from_user is None or message.text is None:
-        return
-    await ensure_user(message)
-    async with SessionLocal() as session:
-        service = BrawlCardsService(session)
-        state = await service.get_input_state(message.from_user.id)
-        if state is None:
-            return
-        if state.state == 'nick_wait':
-            async with session.begin():
-                ok, resp = await service.set_nickname(message.from_user.id, message.text)
-                await service.clear_input_state(message.from_user.id)
-            await message.answer(resp, reply_markup=main_menu())
-            if ok:
-                await show_screen(message, 'profile')
-            return
-        if state.state == 'quote_wait':
-            async with session.begin():
-                await service.clear_input_state(message.from_user.id)
-            await message.answer(f"{h('💬 Цитата')}\nВ«{message.text.strip()}В»", reply_markup=main_menu())
-            return
-        if state.state in {'sticker_last_wait', 'sticker_template_wait'}:
-            async with session.begin():
-                if state.state == 'sticker_last_wait':
-                    user_state = await session.get(BcUserState, message.from_user.id)
-                    if user_state is None or user_state.last_card_id is None:
-                        await service.clear_input_state(message.from_user.id)
-                        await message.answer(f"{h('🎨 Стикер')}\nСначала получите карту.", reply_markup=main_menu())
-                        return
-                    card = await session.get(BcCard, user_state.last_card_id)
-                    if card is None:
-                        await service.clear_input_state(message.from_user.id)
-                        await message.answer(f"{h('🎨 Стикер')}\nКарта не найдена.", reply_markup=main_menu())
-                        return
-                    title = card.title
-                    rarity = card.rarity_key
-                    description = card.description
-                else:
-                    title = 'Antonio'
-                    rarity = 'common'
-                    description = 'Шаблонный стикер'
-                out_path = build_card_image(title, rarity, description, message.text.strip(), Path('tmp'))
-                await service.clear_input_state(message.from_user.id)
-            await message.answer_photo(FSInputFile(str(out_path)), caption=f"{h('🎨 Стикер')}\nСтикер подготовлен.")
-            return
-        if state.state == 'market_sell_wait':
-            parts = [p.strip() for p in message.text.split('|')]
-            if len(parts) != 3:
-                await message.answer(f"{h('💱 Маркет')}\nНужен формат: `instance_id|coins_or_stars|price`", parse_mode='Markdown')
-                return
-            instance_id, currency, price = parts
-            async with session.begin():
-                ok, resp = await service.market_sell_instance(message.from_user.id, int(instance_id), currency, int(price))
-                await service.clear_input_state(message.from_user.id)
-            await message.answer(f"{h('💱 Маркет')}\n{resp}", reply_markup=main_menu())
-            return
-        if state.state == 'marriage_propose_wait':
-            target_id = int(message.text.strip())
-            async with session.begin():
-                ok, resp = await service.marriage_propose(message.from_user.id, target_id)
-                await service.clear_input_state(message.from_user.id)
-            await message.answer(f"{h('РЎР‚РЎСџРІР‚в„ўР\xa0РЉ Р\xa0\xa0РІР‚\x98Р\xa0РЋР\xa0вЂљР\xa0\xa0Р’В°Р\xa0\xa0РЎвЂќ')}\n{resp}", reply_markup=main_menu())
-            return
-        if state.state == 'rp_target_wait':
-            payload = dict(state.payload or {})
-            action_key = str(payload.get('action_key') or '')
-            async with session.begin():
-                target = await service.resolve_user_reference(message.text)
-                if target is None:
-                    await message.answer(f"{h('?? RP')}\n???????????? ?? ??????. ????????? ID, @username ??? ?????? `https://t.me/...`", parse_mode='Markdown', reply_markup=main_menu())
-                    return
-                result = await service.perform_rp_action_payload(
-                    message.from_user.id,
-                    action_key,
-                    target.id,
-                    message.chat.type if message.chat else None,
-                    message.chat.id if message.chat else None,
-                    message.message_id,
-                )
-                if not result.get('ok'):
-                    await message.answer(f"{h('?? RP')}\n{result.get('message', '??????.')}", reply_markup=main_menu())
-                    return
-                await service.clear_input_state(message.from_user.id)
-            await send_rp_result(message, f"{h('?? RP')}\n{result['text']}", result.get('media'))
-            return
-        if state.state == 'admin_user_manage_form':
-            if not is_admin_id(message.from_user.id):
-                await message.answer('Access denied', reply_markup=main_menu())
-                return
-            parts = [p.strip() for p in message.text.split('|', maxsplit=2)]
-            if len(parts) != 3:
-                await message.answer(
-                    f"{h('\U0001f465 \u0423\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u0435\u043c')}\n\u041d\u0443\u0436\u0435\u043d \u0444\u043e\u0440\u043c\u0430\u0442: `user_id|field|value`",
-                    parse_mode='Markdown',
-                    reply_markup=main_menu(),
-                )
-                return
-            target_user_id, field, value = parts
-            async with session.begin():
-                ok, resp = await service.admin_update_user(int(target_user_id), field, value)
-                await service.clear_input_state(message.from_user.id)
-            await message.answer(f"{h('\U0001f465 \u0423\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u0435\u043c')}\n{resp}", reply_markup=main_menu())
-            return
-        if state.state == 'admin_system_form':
-            if not is_admin_id(message.from_user.id):
-                await message.answer('Access denied', reply_markup=main_menu())
-                return
-            payload = dict(state.payload or {})
-            section = str(payload.get('section') or '')
-            parts = [p.strip() for p in message.text.split('|', maxsplit=1)]
-            if len(parts) != 2:
-                await message.answer(
-                    f"{h('\u2699\ufe0f \u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0431\u043e\u0442\u0430')}\n\u041d\u0443\u0436\u0435\u043d \u0444\u043e\u0440\u043c\u0430\u0442: `key|value`",
-                    parse_mode='Markdown',
-                    reply_markup=main_menu(),
-                )
-                return
-            key, raw_value = parts
-            defaults = await service.get_system_section(section)
-            if key not in defaults:
-                await message.answer(
-                    f"{h('\u2699\ufe0f \u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0431\u043e\u0442\u0430')}\n\u041d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u044b\u0439 \u043a\u043b\u044e\u0447: `{key}`",
-                    parse_mode='Markdown',
-                    reply_markup=main_menu(),
-                )
-                return
-            if section in {'cooldowns', 'rewards'}:
-                try:
-                    value: object = int(raw_value)
-                except ValueError:
-                    await message.answer(
-                        f"{h('\u2699\ufe0f \u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0431\u043e\u0442\u0430')}\n\u0414\u043b\u044f \u044d\u0442\u043e\u0433\u043e \u0440\u0430\u0437\u0434\u0435\u043b\u0430 \u043d\u0443\u0436\u043d\u043e \u0447\u0438\u0441\u043b\u043e.",
-                        reply_markup=main_menu(),
-                    )
-                    return
-            else:
-                value = raw_value
-            async with session.begin():
-                await service.set_system_value(section, key, value)
-                await service.clear_input_state(message.from_user.id)
-            await message.answer(f"{h('\u2699\ufe0f \u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0431\u043e\u0442\u0430')}\n\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u043e: `{key}` = `{value}`", parse_mode='Markdown', reply_markup=main_menu())
-            return
-        if state.state == 'admin_card_wizard':
             if not is_admin_id(message.from_user.id):
                 await message.answer('Access denied', reply_markup=main_menu())
                 return
@@ -2027,44 +1934,61 @@ async def on_text_input(message: Message) -> None:
             data = dict(payload.get('data') or {})
             steps = CARD_WIZARD_STEPS.get(mode, CARD_WIZARD_STEPS['create'])
             raw = message.text.strip()
+            if raw.lower() in {'??????', 'cancel', '/cancel'}:
+                async with session.begin():
+                    await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('?? ??????????? ????????')}\n???????? ??? ?????????????? ???????? ????????.", reply_markup=main_menu())
+                return
             if not step or step not in steps:
-                await message.answer('Состояние конструктора карточки повреждено.', reply_markup=main_menu())
+                await message.answer('????????? ???????????? ???????? ??????????.', reply_markup=main_menu())
                 return
             if mode == 'edit' and raw == '-' and step != 'photo':
                 value = data.get(step)
             else:
-                if step in {'key', 'title', 'description', 'series'}:
-                    value = raw
-                elif step == 'rarity_key':
-                    if await session.get(BcRarity, raw) is None:
-                        await message.answer('Редкость не найдена. Введите существующий `rarity_key`.', parse_mode='Markdown', reply_markup=main_menu())
+                if step == 'key':
+                    value = raw.lower().replace(' ', '_')
+                    if not value:
+                        await message.answer('????? key ????????.', reply_markup=ik_admin_card_wizard())
                         return
+                elif step in {'title', 'description', 'series'}:
                     value = raw
+                    if step in {'title', 'description'} and not value:
+                        await message.answer('??? ???? ???????????.', reply_markup=ik_admin_card_wizard())
+                        return
+                elif step == 'rarity_key':
+                    resolved = await resolve_rarity_key(session, raw)
+                    if resolved is None:
+                        hint = await card_rarity_hint(session)
+                        await message.answer(f"???????? ?? ???????.\n\n{hint}", parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
+                        return
+                    value = resolved
                 elif step in {'points', 'coins', 'sort'}:
                     try:
                         value = int(raw)
                     except ValueError:
-                        await message.answer('Нужно целое число.', reply_markup=main_menu())
+                        await message.answer('????? ????? ?????.', reply_markup=ik_admin_card_wizard())
                         return
                 elif step == 'drop_weight':
                     try:
                         value = float(raw)
                     except ValueError:
-                        await message.answer('Нужно число. Пример: `1` или `0.35`.', parse_mode='Markdown', reply_markup=main_menu())
+                        await message.answer('????? ?????. ??????: `1` ??? `0.35`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
                         return
                 elif step in {'is_limited', 'is_sellable', 'is_active'}:
-                    if raw.lower() not in {'0', '1', 'да', 'нет'}:
-                        await message.answer('Нужно `1` или `0`.', parse_mode='Markdown', reply_markup=main_menu())
+                    normalized = raw.lower()
+                    if normalized not in {'0', '1', '??', '???'}:
+                        await message.answer('????? `1/0` ??? `??/???`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
                         return
-                    value = 1 if raw.lower() in {'1', 'да'} else 0
+                    value = 1 if normalized in {'1', '??'} else 0
                 elif step == 'photo':
                     if raw != '-':
-                        await message.answer('На этом шаге отправьте фото или `-`.', reply_markup=main_menu())
+                        await message.answer('?? ???? ???? ????????? ???? ??? `-`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard(can_skip_photo=True))
                         return
                     value = data.get('photo') or ''
                 else:
                     value = raw
             if step == 'photo':
+                data['photo'] = value
                 payload['data'] = data
                 async with session.begin():
                     ok, resp, card_id = await save_card_wizard_payload(session, service, message.from_user.id, payload)
@@ -2077,7 +2001,11 @@ async def on_text_input(message: Message) -> None:
             next_step = steps[next_index]
             async with session.begin():
                 await service.set_input_state(message.from_user.id, 'admin_card_wizard', {'mode': mode, 'id': payload.get('id'), 'step': next_step, 'data': data})
-            await message.answer(card_wizard_prompt(mode, next_step, data), parse_mode='Markdown', reply_markup=main_menu())
+            reply_markup = ik_admin_card_wizard(can_skip_photo=(next_step == 'photo'))
+            extra = ''
+            if next_step == 'rarity_key':
+                extra = f"\n\n{await card_rarity_hint(session)}"
+            await message.answer(f"{card_wizard_prompt(mode, next_step, data)}{extra}", parse_mode='Markdown', reply_markup=reply_markup)
             return
         if state.state == 'admin_card_form':
             if not is_admin_id(message.from_user.id):

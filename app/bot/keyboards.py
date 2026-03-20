@@ -265,6 +265,15 @@ def ik_quote_menu() -> InlineKeyboardMarkup:
     )
 
 
+def ik_admin_card_wizard(*, can_skip_photo: bool = False) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if can_skip_photo:
+        rows.append([InlineKeyboardButton(text="⏭ Пропустить фото", callback_data="act:admin:card:wizard:skip_photo")])
+    rows.append([InlineKeyboardButton(text="❌ Отменить", callback_data="act:admin:card:wizard:cancel")])
+    rows.append([InlineKeyboardButton(text="🔙 К карточкам", callback_data="nav:admin:cards")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def ik_sticker_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
