@@ -216,7 +216,7 @@ async def screen_shop_item(message: Message, item_key: str) -> None:
         service = BrawlCardsService(session)
         item = await service.shop_item(item_key)
         if item is None:
-            await message.answer(f"{h("\U0001f6d2 \u041c\u0430\u0433\u0430\u0437\u0438\u043d")}\n\u0422\u043e\u0432\u0430\u0440 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d.", reply_markup=ik_shop_categories())
+            await message.answer(f"{h('\U0001f6d2 \u041c\u0430\u0433\u0430\u0437\u0438\u043d')}\n\u0422\u043e\u0432\u0430\u0440 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d.", reply_markup=ik_shop_categories())
             return
     price_lines: list[str] = []
     if item.price_coins is not None:
@@ -226,7 +226,7 @@ async def screen_shop_item(message: Message, item_key: str) -> None:
     price_text = "\n".join(price_lines) if price_lines else "?"
     duration = seconds_to_hms(item.duration_seconds) if item.duration_seconds else "?"
     text = (
-        f"{h("\U0001f6d2 \u0422\u043e\u0432\u0430\u0440")}\n"
+        f"{h('\U0001f6d2 \u0422\u043e\u0432\u0430\u0440')}\n"
         f"?? *{item.title}*\n"
         f"?? {item.description}\n\n"
         f"?? \u0426\u0435\u043d\u0430:\n{price_text}\n"
@@ -286,7 +286,7 @@ async def screen_task_detail(message: Message, task_key: str) -> None:
     await message.answer(text, reply_markup=kb, parse_mode='Markdown')
 
 async def screen_shop(message: Message) -> None:
-    text = f"{h("\U0001f6d2 \u041c\u0430\u0433\u0430\u0437\u0438\u043d")}\n\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044e, \u043e\u0442\u043a\u0440\u043e\u0439\u0442\u0435 \u043e\u0444\u0444\u0435\u0440\u044b \u0434\u043d\u044f \u0438\u043b\u0438 \u043f\u043e\u0441\u043c\u043e\u0442\u0440\u0438\u0442\u0435 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0435 \u0438\u0432\u0435\u043d\u0442\u044b.\nTelegram Stars \u0434\u043b\u044f \u0446\u0438\u0444\u0440\u043e\u0432\u044b\u0445 \u043f\u043e\u043a\u0443\u043f\u043e\u043a \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u043f\u0440\u044f\u043c\u043e \u0432\u043d\u0443\u0442\u0440\u0438 \u0431\u043e\u0442\u0430."
+    text = f"{h('\U0001f6d2 \u041c\u0430\u0433\u0430\u0437\u0438\u043d')}\n\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044e, \u043e\u0442\u043a\u0440\u043e\u0439\u0442\u0435 \u043e\u0444\u0444\u0435\u0440\u044b \u0434\u043d\u044f \u0438\u043b\u0438 \u043f\u043e\u0441\u043c\u043e\u0442\u0440\u0438\u0442\u0435 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0435 \u0438\u0432\u0435\u043d\u0442\u044b.\nTelegram Stars \u0434\u043b\u044f \u0446\u0438\u0444\u0440\u043e\u0432\u044b\u0445 \u043f\u043e\u043a\u0443\u043f\u043e\u043a \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u043f\u0440\u044f\u043c\u043e \u0432\u043d\u0443\u0442\u0440\u0438 \u0431\u043e\u0442\u0430."
     await message.answer(text, reply_markup=ik_shop_categories())
 
 async def screen_chest(message: Message) -> None:
