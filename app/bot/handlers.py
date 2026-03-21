@@ -386,6 +386,26 @@ async def render_settings_screen(message: Message) -> None:
     await message.answer(text, reply_markup=ik_settings())
 
 
+async def screen_admin(message: Message) -> None:
+    if message.from_user is None:
+        return
+    if not is_admin_id(message.from_user.id):
+        allowed = ", ".join(str(x) for x in sorted(get_settings().admin_id_set()))
+        await message.answer(
+            f"{h('🛠 Админ-панель')}\n"
+            f"Доступ запрещён.\n"
+            f"Ваш ID: `{message.from_user.id}`\n"
+            f"Разрешённые ID: `{allowed}`",
+            reply_markup=main_menu(is_admin=is_admin_id(message.from_user.id)),
+            parse_mode="Markdown",
+        )
+        return
+    await message.answer(
+        f"{h('🛠 Админ-панель')}\nВыберите раздел.",
+        reply_markup=ik_admin_main(),
+    )
+
+
 async def render_admin_section_v2(message: Message, section: str) -> bool:
     if message.from_user is None or not is_admin_id(message.from_user.id):
         return False
