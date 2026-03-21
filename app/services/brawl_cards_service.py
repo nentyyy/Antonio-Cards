@@ -951,25 +951,26 @@ class BrawlCardsService:
         if key == 'notifications':
             s.notifications = not bool(s.notifications)
             await self.session.flush()
-            return (True, f'Уведомления: {('РІРєР»' if s.notifications else 'выкл')}')
+            return (True, f"???????????: {'???' if s.notifications else '????'}")
         if key == 'privacy':
             current = bool((s.privacy or {}).get('hidden'))
             s.privacy = {'hidden': not current}
             await self.session.flush()
-            return (True, f'Приватность: {('скрытый профиль' if not current else 'открытый профиль')}')
+            return (True, f"???????????: {'??????? ???????' if not current else '???????? ???????'}")
         if key == 'confirm':
             s.confirm_purchases = not bool(s.confirm_purchases)
             await self.session.flush()
-            return (True, f'Подтверждение покупок: {('РІРєР»' if s.confirm_purchases else 'выкл')}')
+            return (True, f"????????????? ???????: {'???' if s.confirm_purchases else '????'}")
         if key == 'media':
             s.show_media = not bool(s.show_media)
             await self.session.flush()
-            return (True, f'Показ медиа: {('РІРєР»' if s.show_media else 'выкл')}')
+            return (True, f"????? ?????: {'???' if s.show_media else '????'}")
         if key == 'safe_mode':
             s.safe_mode = not bool(s.safe_mode)
             await self.session.flush()
-            return (True, f'Безопасный режим: {('РІРєР»' if s.safe_mode else 'выкл')}')
-        return (False, 'Неизвестная настройка.')
+            return (True, f"?????????? ?????: {'???' if s.safe_mode else '????'}")
+        return (False, '??????????? ?????????.')
+
 
     async def cycle_setting(self, user_id: int, key: str) -> tuple[bool, str]:
         s = await self.ensure_settings(user_id)

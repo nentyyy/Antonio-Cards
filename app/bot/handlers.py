@@ -332,446 +332,25 @@ async def screen_sticker(message: Message) -> None:
     await message.answer(text, reply_markup=ik_nav('main'))
 
 async def screen_games(message: Message) -> None:
-    text = f"{h('СЂСџР‹Р† Р\xa0\x98Р\xa0С–РЎР‚РЎвЂ№')}\nВыберите мини-игру. Ставки и анти-абуз — в разработке (MVP)."
-    items = [('dice', '🎲 Кости'), ('guess_rarity', '🎯 Угадай редкость'), ('coinflip', '🪙 Орёл/решка'), ('slot', '🎰 Слот')]
+    text = f"{h('\U0001f3b2 \u0418\u0433\u0440\u044b')}\n\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043c\u0438\u043d\u0438-\u0438\u0433\u0440\u0443. \u0421\u0442\u0430\u0432\u043a\u0438 \u0438 \u043d\u0430\u0433\u0440\u0430\u0434\u044b \u0440\u0430\u0431\u043e\u0442\u0430\u044e\u0442 \u0447\u0435\u0440\u0435\u0437 \u043a\u043d\u043e\u043f\u043a\u0438 \u043d\u0438\u0436\u0435."
+    items = [
+        ('dice', '\U0001f3b2 \u041a\u043e\u0441\u0442\u0438'),
+        ('guess_rarity', '\U0001f3af \u0423\u0433\u0430\u0434\u0430\u0439 \u0440\u0435\u0434\u043a\u043e\u0441\u0442\u044c'),
+        ('coinflip', '\U0001fa99 \u041e\u0440\u0451\u043b/\u0440\u0435\u0448\u043a\u0430'),
+        ('slot', '\U0001f3b0 \u0421\u043b\u043e\u0442'),
+    ]
     await message.answer(text, reply_markup=ik_list_nav(items, prefix='act:game', back_to='main'))
 
+
 async def screen_market(message: Message) -> None:
-    text = f"{h('💱 Маркет')}\nТорговая площадка (MVP): скоро появятся лоты и поиск."
-    await message.answer(text, reply_markup=ik_nav('main'))
-
-async def screen_marriage(message: Message) -> None:
-    text = f"{h('💍 Брак')}\nСистема предложений и профиля пары (MVP): скоро."
-    await message.answer(text, reply_markup=ik_nav('main'))
-
-async def screen_settings(message: Message) -> None:
-    text = f"{h('⚙️ Настройки')}\nЗдесь вы можете настроить:\n• уведомления\n• язык\n• приватность\n• подтверждение покупок\n• стиль выдачи карточек\n• отображение медиа\n• безопасный режим"
-    await message.answer(text, reply_markup=ik_nav('main'))
-
-async def screen_admin(message: Message) -> None:
-    if message.from_user is None:
-        return
-    if not is_admin_id(message.from_user.id):
-        allowed = ', '.join((str(admin_id) for admin_id in sorted(get_settings().admin_id_set()))) or 'не заданы'
-        await message.answer(f"{h('🛠 Админ-панель')}\nДоступ запрещён.\nВаш ID: `{message.from_user.id}`\nРазрешённые ID: `{allowed}`", reply_markup=ik_nav('main'), parse_mode='Markdown')
-        return
-    text = f"{h('🛠 Админ-панель')}\nВыберите раздел."
-    await message.answer(text, reply_markup=ik_admin_main())
-
-async def screen_admin_section(message: Message, section: str) -> None:
-    if message.from_user is None:
-        return
-    if not is_admin_id(message.from_user.id):
-        allowed = ', '.join((str(admin_id) for admin_id in sorted(get_settings().admin_id_set()))) or 'не заданы'
-        await message.answer(f"{h('🛠 Админ-панель')}\nДоступ запрещён.\nВаш ID: `{message.from_user.id}`\nРазрешённые ID: `{allowed}`", reply_markup=main_menu(), parse_mode='Markdown')
-        return
-    async with SessionLocal() as session:
-        if section == 'rarities':
-            rows = (await session.scalars(select(BcRarity).order_by(BcRarity.sort))).all()
-            items = [(r.key, f"{r.emoji} {r.title} ({r.chance:g})") for r in rows]
-            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='➕ Добавить редкость', callback_data='act:admin:rarity:create')], *[[InlineKeyboardButton(text=title, callback_data=f"nav:admin_rarity:{key}")] for key, title in items], [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin')]])
-            await message.answer(f"{h('💎 Редкости')}\nВыберите редкость для просмотра или редактирования.", reply_markup=kb)
-            return
-        if section == 'boosters':
-            rows = (await session.scalars(select(BcBooster).order_by(BcBooster.key))).all()
-            items = [(b.key, f"{b.emoji} {b.title} ({b.effect_type} {b.effect_power:g})") for b in rows]
-            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='➕ Добавить бустер', callback_data='act:admin:booster:create')], *[[InlineKeyboardButton(text=title, callback_data=f"nav:admin_booster:{key}")] for key, title in items], [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin')]])
-            await message.answer(f"{h('⚡ Бустеры')}\nВыберите бустер.", reply_markup=kb)
-            return
-        if section == 'bonus':
-            rows = (await session.scalars(select(BcBonusTask).order_by(BcBonusTask.sort))).all()
-            items = [(t.key, f"{t.emoji} {t.title}") for t in rows]
-            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='➕ Добавить бонус-задание', callback_data='act:admin:bonus:create')], *[[InlineKeyboardButton(text=title, callback_data=f"nav:admin_bonus:{key}")] for key, title in items], [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin')]])
-            await message.answer(f"{h('🎁 Бонус-задания')}\nНастройка бонусных кнопок и условий.", reply_markup=kb)
-            return
-        if section == 'chests':
-            rows = (await session.scalars(select(BcChest).order_by(BcChest.sort))).all()
-            items = [(c.key, f"{c.emoji} {c.title}") for c in rows]
-            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='➕ Добавить сундук', callback_data='act:admin:chest:create')], *[[InlineKeyboardButton(text=title, callback_data=f"nav:admin_chest:{key}")] for key, title in items], [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin')]])
-            await message.answer(f"{h('📦 Сундуки')}\nВыберите сундук.", reply_markup=kb)
-            return
-    await message.answer(f"{h('🛠 Админ-панель')}\nРаздел в разработке: {section}", reply_markup=ik_admin_main())
-
-async def screen_admin_rarity(message: Message, rarity_key: str) -> None:
-    if message.from_user is None:
-        return
-    if not is_admin_id(message.from_user.id):
-        await message.answer(f"{h('🛠 Админ')}\nДоступ запрещён.", reply_markup=main_menu())
-        return
-    async with SessionLocal() as session:
-        r = await session.get(BcRarity, rarity_key)
-        if r is None:
-            await message.answer(f"{h('💎 Редкости')}\nРедкость не найдена.", reply_markup=main_menu())
-            return
-    text = f"{h('💎 Редкость')}\nКлюч: `{r.key}`\nНазвание: {r.title}\nР\xadРјРѕРґР·Рё: {r.emoji}\nШанс: {r.chance:g}\nЦвет: {r.color}\nМножители: points x{r.points_mult:g}, coins x{r.coins_mult:g}\nР\xa0РµР¶РёРј: {r.drop_mode}\nАктивна: {('РґР°' if r.is_active else 'нет')}"
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='✏️ Редактировать', callback_data=f"act:admin:rarity:edit:{r.key}")], [InlineKeyboardButton(text='🗑 Удалить', callback_data=f"act:admin:rarity:delete:{r.key}")], [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin:rarities')]])
-    await message.answer(text, reply_markup=kb, parse_mode='Markdown')
-
-async def screen_admin_booster(message: Message, booster_key: str) -> None:
-    if message.from_user is None:
-        return
-    if not is_admin_id(message.from_user.id):
-        await message.answer(f"{h('🛠 Админ')}\nДоступ запрещён.", reply_markup=main_menu())
-        return
-    async with SessionLocal() as session:
-        b = await session.get(BcBooster, booster_key)
-        if b is None:
-            await message.answer(f"{h('⚡ Бустеры')}\nБустер не найден.", reply_markup=main_menu())
-            return
-    text = f"{h('⚡ Бустер')}\nКлюч: `{b.key}`\nНазвание: {b.title}\nР\xadРјРѕРґР·Рё: {b.emoji}\nЭффект: {b.effect_type} power={b.effect_power:g}\nР¦РµРЅР°: {b.price_coins or '—'}🪙 / {b.price_stars or '—'}⭐\nДлительность: {(seconds_to_hms(b.duration_seconds) if b.duration_seconds else 'одноразовый/пассив')}\nСтаки: {('РґР°' if b.stackable else 'нет')} (max {b.max_stack})\nДоступен: {('РґР°' if b.is_available else 'нет')}"
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='✏️ Редактировать', callback_data=f"act:admin:booster:edit:{b.key}")], [InlineKeyboardButton(text='🗑 Удалить', callback_data=f"act:admin:booster:delete:{b.key}")], [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin:boosters')]])
-    await message.answer(text, reply_markup=kb, parse_mode='Markdown')
-
-async def screen_admin_chest(message: Message, chest_key: str) -> None:
-    if message.from_user is None:
-        return
-    if not is_admin_id(message.from_user.id):
-        await message.answer(f"{h('🛠 Админ')}\nДоступ запрещён.", reply_markup=main_menu())
-        return
-    async with SessionLocal() as session:
-        c = await session.get(BcChest, chest_key)
-        if c is None:
-            await message.answer(f"{h('📦 Сундуки')}\nСундук не найден.", reply_markup=main_menu())
-            return
-        drops = (await session.scalars(select(BcChestDrop).where(BcChestDrop.chest_key == chest_key))).all()
-    drop_lines = [f"• {d.rarity_key} ({d.weight:g})" for d in drops] or ['—']
-    text = f"{h('📦 Сундук')}\nКлюч: `{c.key}`\nНазвание: {c.emoji} {c.title}\nОписание: {c.description}\nЦена: {c.price_coins or '—'}🪙 / {c.price_stars or '—'}⭐\nОткрытий: {c.open_count}\n\nДроп:\n" + '\n'.join(drop_lines)
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='✏️ Редактировать', callback_data=f"act:admin:chest:edit:{c.key}")], [InlineKeyboardButton(text='🗑 Удалить', callback_data=f"act:admin:chest:delete:{c.key}")], [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin:chests')]])
-    await message.answer(text, reply_markup=kb, parse_mode='Markdown')
-
-async def screen_admin_card(message: Message, card_id: int) -> None:
-    if message.from_user is None:
-        return
-    if not is_admin_id(message.from_user.id):
-        await message.answer(f"{h('🛠 Админ')}\nДоступ запрещён.", reply_markup=main_menu())
-        return
-    async with SessionLocal() as session:
-        card = await session.get(BcCard, card_id)
-        if card is None:
-            await message.answer(f"{h('🃏 Карточки')}\nКарточка не найдена.", reply_markup=main_menu())
-            return
-        rarity = await session.get(BcRarity, card.rarity_key)
-    rarity_title = f"{rarity.emoji} {rarity.title}" if rarity else card.rarity_key
-    tags = ', '.join(card.tags or []) if card.tags else '—'
-    text = f"{h('🃏 Карточка')}\nID: `{card.id}`\nКлюч: `{card.key}`\nНазвание: {card.title}\nОписание: {card.description}\nСерия: {card.series}\nРедкость: {rarity_title}\nОчки: {card.base_points}\nМонеты: {card.base_coins}\nШанс: {card.drop_weight:g}\nЛимитка: {('да' if card.is_limited else 'нет')}\nПродажа: {('да' if card.is_sellable else 'нет')}\nАктивна: {('да' if card.is_active else 'нет')}\nСортировка: {card.sort}\nТеги: {tags}\nФото: {('загружено' if card.image_file_id else 'нет')}\nImage file id: {card.image_file_id or '—'}"
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text='?? ?????????????', callback_data=f"act:admin:card:edit:{card.id}")],
-        [InlineKeyboardButton(text='?? ???????? ????', callback_data=f"act:admin:card:photo:{card.id}")],
-        [InlineKeyboardButton(text='?? ???????????', callback_data=f"act:admin:card:duplicate:{card.id}")],
-        [
-            InlineKeyboardButton(text=('?? ???????' if card.is_active else '? ?????????'), callback_data=f"act:admin:card:toggle_active:{card.id}"),
-            InlineKeyboardButton(text=('?? ? ???????' if card.is_sellable else '?? ?? ?????????'), callback_data=f"act:admin:card:toggle_sell:{card.id}"),
-        ],
-        [InlineKeyboardButton(text='?? ???????', callback_data=f"act:admin:card:delete:{card.id}")],
-        [InlineKeyboardButton(text='?? ?????', callback_data='nav:admin:cards')],
-    ])
-    if card.image_file_id:
-        await message.answer_photo(card.image_file_id, caption=text, reply_markup=kb, parse_mode='Markdown')
-    else:
-        await message.answer(text, reply_markup=kb, parse_mode='Markdown')
-
-
-async def screen_admin_rp_category(message: Message, category_key: str) -> None:
-    if message.from_user is None or not is_admin_id(message.from_user.id):
-        await message.answer(f"{h('🛠 Админ')}\nДоступ запрещён.", reply_markup=main_menu())
-        return
-    async with SessionLocal() as session:
-        category = await session.get(BcRPCategory, category_key)
-        if category is None:
-            await message.answer(f"{h('🎭 RP')}\nКатегория не найдена.", reply_markup=main_menu())
-            return
-        actions = (await session.scalars(select(BcRPAction).where(BcRPAction.category_key == category.key).order_by(BcRPAction.sort))).all()
-    lines = [
-        h('🎭 RP-категория'),
-        f"Ключ: `{category.key}`",
-        f"Название: {category.emoji} {category.title}",
-        f"Сортировка: {category.sort}",
-        f"Активна: {"да" if category.is_active else "нет"}",
-        f"Действий внутри: {len(actions)}",
-    ]
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text='✏️ Редактировать', callback_data=f"act:admin:rp_category:edit:{category.key}")],
-        [InlineKeyboardButton(text='🗑 Удалить', callback_data=f"act:admin:rp_category:delete:{category.key}")],
-        [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin:rp')],
-    ])
-    await message.answer('\n'.join(lines), reply_markup=kb, parse_mode='Markdown')
-
-
-async def screen_admin_rp_action(message: Message, action_key: str) -> None:
-    if message.from_user is None or not is_admin_id(message.from_user.id):
-        await message.answer(f"{h('🛠 Админ')}\nДоступ запрещён.", reply_markup=main_menu())
-        return
-    async with SessionLocal() as session:
-        action = await session.get(BcRPAction, action_key)
-        if action is None:
-            await message.answer(f"{h('🎭 RP')}\nДействие не найдено.", reply_markup=main_menu())
-            return
-    reward = dict(action.reward or {})
-    scopes = dict(action.allowed_scopes or {})
-    lines = [
-        h('🎭 RP-действие'),
-        f"Ключ: `{action.key}`",
-        f"Категория: `{action.category_key}`",
-        f"Название: {action.emoji} {action.title}",
-        f"Нужна цель: {"да" if action.requires_target else "нет"}",
-        f"Кулдаун: {action.cooldown_seconds}с",
-        f"Награда: +{int(reward.get("coins") or 0)}🪙 +{int(reward.get("stars") or 0)}⭐ +{int(reward.get("points") or 0)}✨",
-        f"Media ID: {action.media_id or "—"}",
-        f"Private: {"да" if scopes.get("private", True) else "нет"}",
-        f"Group: {"да" if scopes.get("group", True) else "нет"}",
-        f"Активно: {"да" if action.is_active else "нет"}",
-    ]
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text='✏️ Редактировать', callback_data=f"act:admin:rp_action:edit:{action.key}")],
-        [InlineKeyboardButton(text='🗑 Удалить', callback_data=f"act:admin:rp_action:delete:{action.key}")],
-        [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin:rp')],
-    ])
-    await message.answer('\n'.join(lines), reply_markup=kb, parse_mode='Markdown')
-
-
-CARD_WIZARD_STEPS: dict[str, list[str]] = {
-    'create': ['key', 'title', 'description', 'rarity_key', 'series', 'points', 'coins', 'drop_weight', 'is_limited', 'is_sellable', 'is_active', 'sort', 'photo'],
-    'edit': ['title', 'description', 'rarity_key', 'series', 'points', 'coins', 'drop_weight', 'is_limited', 'is_sellable', 'is_active', 'sort', 'photo'],
-}
-
-
-async def resolve_rarity_key(session, raw: str) -> str | None:
-    value = raw.strip()
-    if not value:
-        return None
-    rarity = await session.get(BcRarity, value)
-    if rarity is not None:
-        return rarity.key
-    rows = (await session.scalars(select(BcRarity))).all()
-    lowered = value.lower()
-    for row in rows:
-        if row.title.lower() == lowered:
-            return row.key
-        if f"{row.emoji} {row.title}".lower() == lowered:
-            return row.key
-    return None
-
-
-async def card_rarity_hint(session) -> str:
-    rows = (await session.scalars(select(BcRarity).order_by(BcRarity.sort))).all()
-    if not rows:
-        return "\u0420\u0435\u0434\u043a\u043e\u0441\u0442\u0438 \u0435\u0449\u0451 \u043d\u0435 \u0441\u043e\u0437\u0434\u0430\u043d\u044b."
-    return "\u0414\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0435 \u0440\u0435\u0434\u043a\u043e\u0441\u0442\u0438: " + ", ".join(f"`{row.key}` ({row.emoji} {row.title})" for row in rows[:10])
-
-
-def card_wizard_prompt(mode: str, step: str, data: dict) -> str:
-    title = "\U0001f0cf \u041a\u043e\u043d\u0441\u0442\u0440\u0443\u043a\u0442\u043e\u0440 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438"
-    current = data.get(step)
-    current_line = ''
-    if mode == 'edit' and current not in (None, ''):
-        current_line = f"\n\u0422\u0435\u043a\u0443\u0449\u0435\u0435 \u0437\u043d\u0430\u0447\u0435\u043d\u0438\u0435: `{current}`"
-    steps = CARD_WIZARD_STEPS.get(mode, CARD_WIZARD_STEPS['create'])
-    step_index = (steps.index(step) + 1) if step in steps else 1
-    progress = f"\u0428\u0430\u0433 {step_index}/{len(steps)}.\n"
-    if step == 'key':
-        return f"{h(title)}\n{progress}\u0423\u043a\u0430\u0436\u0438\u0442\u0435 `key` \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.\n\u041f\u0440\u0438\u043c\u0435\u0440: `rustblade`"
-    if step == 'title':
-        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.{current_line}"
-    if step == 'description':
-        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043e\u043f\u0438\u0441\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.{current_line}"
-    if step == 'rarity_key':
-        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 `rarity_key`.\n\u041f\u0440\u0438\u043c\u0435\u0440: `common`, `rare`, `legendary`.{current_line}"
-    if step == 'series':
-        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0441\u0435\u0440\u0438\u044e \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.{current_line}\n\u0414\u043b\u044f \u0441\u0442\u0430\u043d\u0434\u0430\u0440\u0442\u043d\u043e\u0439 \u0441\u0435\u0440\u0438\u0438 \u043e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 `Core`."
-    if step == 'points':
-        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0431\u0430\u0437\u043e\u0432\u044b\u0435 \u043e\u0447\u043a\u0438.{current_line}"
-    if step == 'coins':
-        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043d\u0430\u0433\u0440\u0430\u0434\u0443 \u0432 \u043c\u043e\u043d\u0435\u0442\u0430\u0445.{current_line}"
-    if step == 'drop_weight':
-        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0432\u0435\u0441 \u0432\u044b\u043f\u0430\u0434\u0435\u043d\u0438\u044f.\n\u041f\u0440\u0438\u043c\u0435\u0440: `1` \u0438\u043b\u0438 `0.35`.{current_line}"
-    if step == 'is_limited':
-        return f"{h(title)}\n{progress}\u041b\u0438\u043c\u0438\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u0430\u044f \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0430?\n\u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 `1/0` \u0438\u043b\u0438 `\u0434\u0430/\u043d\u0435\u0442`.{current_line}"
-    if step == 'is_sellable':
-        return f"{h(title)}\n{progress}\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044c \u043f\u0440\u043e\u0434\u0430\u0436\u0443?\n\u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 `1/0` \u0438\u043b\u0438 `\u0434\u0430/\u043d\u0435\u0442`.{current_line}"
-    if step == 'is_active':
-        return f"{h(title)}\n{progress}\u0421\u0434\u0435\u043b\u0430\u0442\u044c \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0443 \u0430\u043a\u0442\u0438\u0432\u043d\u043e\u0439?\n\u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 `1/0` \u0438\u043b\u0438 `\u0434\u0430/\u043d\u0435\u0442`.{current_line}"
-    if step == 'sort':
-        return f"{h(title)}\n{progress}\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0441\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u043a\u0443.{current_line}"
-    return f"{h(title)}\n{progress}\u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 \u0444\u043e\u0442\u043e \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435\u043c.\n\u0415\u0441\u043b\u0438 \u0444\u043e\u0442\u043e \u043d\u0435 \u043d\u0443\u0436\u043d\u043e, \u043e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 `-` \u0438\u043b\u0438 \u043d\u0430\u0436\u043c\u0438\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0443 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u0430."
-
-
-async def save_card_wizard_payload(session, service: BrawlCardsService, user_id: int, payload: dict, *, photo_file_id: str | None=None) -> tuple[bool, str, int | None]:
-    mode = str(payload.get('mode') or 'create')
-    data = dict(payload.get('data') or {})
-    if photo_file_id is not None:
-        data['photo'] = photo_file_id
-    rarity_key = str(data.get('rarity_key') or '').strip()
-    if not rarity_key or await session.get(BcRarity, rarity_key) is None:
-        return (False, "\u0420\u0435\u0434\u043a\u043e\u0441\u0442\u044c \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 rarity_key.", None)
-    image_file_id = str(data.get('photo') or '').strip() or None
-    title = str(data.get('title') or '').strip()
-    description = str(data.get('description') or '').strip()
-    if not title:
-        return (False, "\u041d\u0443\u0436\u043d\u043e \u0443\u043a\u0430\u0437\u0430\u0442\u044c \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.", None)
-    if not description:
-        return (False, "\u041d\u0443\u0436\u043d\u043e \u0443\u043a\u0430\u0437\u0430\u0442\u044c \u043e\u043f\u0438\u0441\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.", None)
-    if mode == 'create':
-        key = str(data.get('key') or '').strip()
-        if not key:
-            return (False, "\u041d\u0443\u0436\u0435\u043d key \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.", None)
-        if await session.scalar(select(BcCard.id).where(BcCard.key == key)) is not None:
-            return (False, "\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0430 \u0441 \u0442\u0430\u043a\u0438\u043c key \u0443\u0436\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442.", None)
-        card = BcCard(
-            key=key,
-            title=title,
-            description=description,
-            rarity_key=rarity_key,
-            series=str(data.get('series') or 'Core').strip() or 'Core',
-            tags=[],
-            base_points=int(data.get('points') or 0),
-            base_coins=int(data.get('coins') or 0),
-            drop_weight=float(data.get('drop_weight') or 1),
-            is_limited=bool(int(data.get('is_limited') or 0)),
-            limited_series_id=None,
-            event_id=None,
-            image_file_id=image_file_id,
-            image_url=None,
-            media_id=None,
-            is_sellable=bool(int(data.get('is_sellable') or 0)),
-            is_active=bool(int(data.get('is_active') or 1)),
-            sort=int(data.get('sort') or 100),
-            meta={},
-        )
-        session.add(card)
-        await session.flush()
-        await service.clear_input_state(user_id)
-        return (True, "\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0430.", card.id)
-    card_id = int(payload.get('id') or 0)
-    card = await session.get(BcCard, card_id)
-    if card is None:
-        return (False, "Карточка не найдена.", None)
-    card.title = title
-    card.description = description
-    card.rarity_key = rarity_key
-    card.series = str(data.get('series') or 'Core').strip() or 'Core'
-    card.base_points = int(data.get('points') or 0)
-    card.base_coins = int(data.get('coins') or 0)
-    card.drop_weight = float(data.get('drop_weight') or 1)
-    card.is_limited = bool(int(data.get('is_limited') or 0))
-    card.is_sellable = bool(int(data.get('is_sellable') or 0))
-    card.is_active = bool(int(data.get('is_active') or 1))
-    card.sort = int(data.get('sort') or 100)
-    card.image_file_id = image_file_id
-    await session.flush()
-    await service.clear_input_state(user_id)
-    return (True, "\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0430 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0430.", card.id)
-
-async def render_rp_screen(message: Message) -> None:
-    async with SessionLocal() as session:
-        service = BrawlCardsService(session)
-        categories = await service.rp_categories()
-        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.rp', 'Выберите нужную категорию.\nЕсли действию нужна цель, ответьте на сообщение пользователя и нажмите кнопку действия.')
-    items = [(c.key, f"{c.emoji} {c.title}") for c in categories]
-    text = f"{h('🎭 RP')}\n{body}"
-    await message.answer(text, reply_markup=ik_rp_categories(items))
-
-async def render_quote_screen(message: Message) -> None:
-    async with SessionLocal() as session:
-        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.quote', 'Здесь вы можете создать цитату на основе последней карты или отправить свой текст.')
-    text = f"{h('💬 Цитата')}\n{body}"
-    await message.answer(text, reply_markup=ik_quote_menu())
-
-async def render_sticker_screen(message: Message) -> None:
-    async with SessionLocal() as session:
-        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.sticker', 'Здесь вы можете сделать стикер по последней карте или по шаблону с вашим текстом.')
-    text = f"{h('🎨 Стикер')}\n{body}"
-    await message.answer(text, reply_markup=ik_sticker_menu())
-
-async def render_games_screen(message: Message) -> None:
-    async with SessionLocal() as session:
-        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.games', 'Здесь вы можете выбрать мини-игру. У каждой игры есть ставки, награды и кулдаун.')
-    text = f"{h('🎲 Игры')}\n{body}"
-    await message.answer(text, reply_markup=ik_games_menu())
-
-async def render_game_detail(message: Message, game_key: str) -> None:
-    titles = {'dice': '🎲 Кости', 'guess_rarity': '🎯 Угадай редкость', 'coinflip': '🪙 Орёл/решка', 'card_battle': '🃏 Битва карточек', 'slot': '🎰 Слот'}
-    title = titles.get(game_key)
-    if title is None:
-        await render_games_screen(message)
-        return
-    text = f"{h(title)}\nВыберите ставку. Система автоматически применяет антиабуз через кулдаун и проверку баланса."
-    await message.answer(text, reply_markup=ik_game_stakes(game_key))
-
-async def render_market_screen(message: Message) -> None:
-    async with SessionLocal() as session:
-        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.market', 'Здесь вы можете покупать карточки, выставлять свои лоты и смотреть историю торговли.')
-    text = f"{h('💱 Маркет')}\n{body}"
+    text = f"{h('\U0001f4b1 \u041c\u0430\u0440\u043a\u0435\u0442')}\n\u0422\u043e\u0440\u0433\u043e\u0432\u0430\u044f \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0430: \u043f\u043e\u043a\u0443\u043f\u043a\u0430, \u043f\u0440\u043e\u0434\u0430\u0436\u0430, \u043f\u043e\u0438\u0441\u043a \u0438 \u0438\u0441\u0442\u043e\u0440\u0438\u044f \u043b\u043e\u0442\u043e\u0432."
     await message.answer(text, reply_markup=ik_market_menu())
 
-async def render_market_list(message: Message, mode: str) -> None:
-    if message.from_user is None:
-        return
-    async with SessionLocal() as session:
-        service = BrawlCardsService(session)
-        if mode == 'buy':
-            rows = await service.market_lots(active_only=True, limit=12)
-            title = '🛒 Купить карточку'
-        elif mode == 'limited':
-            rows = await service.market_lots(only_limited=True, active_only=True, limit=12)
-            title = '⭐ Лимитированные'
-        elif mode == 'my':
-            rows = await service.market_lots(seller_id=message.from_user.id, active_only=False, limit=12)
-            title = '📜 Мои лоты'
-        else:
-            rows = await service.market_lots(buyer_or_seller_id=message.from_user.id, active_only=False, limit=12)
-            title = 'РІРЏВ± Р\xa0\x98РЎРѓРЎвЂљР\xa0С•РЎР‚Р\xa0С‘РЎРЏ'
-    lines = [h(title), 'Выберите нужный лот.']
-    buttons: list[list] = []
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    for lot, card, seller in rows:
-        seller_name = seller.nickname or seller.first_name or str(seller.id)
-        lines.append(f"#{lot.id} {card.title} | {lot.price} {lot.currency} | {seller_name}")
-        buttons.append([InlineKeyboardButton(text=f"Лот #{lot.id}: {card.title}", callback_data=f"nav:market_lot:{lot.id}")])
-    buttons.append([InlineKeyboardButton(text='🔙 Назад', callback_data='nav:market')])
-    await message.answer('\n'.join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
-async def render_market_lot(message: Message, lot_id: int) -> None:
-    if message.from_user is None:
-        return
-    async with SessionLocal() as session:
-        rows = await BrawlCardsService(session).market_lots(active_only=False, limit=200)
-    found = next((row for row in rows if row[0].id == lot_id), None)
-    if found is None:
-        await message.answer(f"{h('💱 Маркет')}\nЛот не найден.", reply_markup=ik_market_menu())
-        return
-    lot, card, seller = found
-    seller_name = seller.nickname or seller.first_name or str(seller.id)
-    text = f"{h('💱 Лот')}\nID: `{lot.id}`\nКарта: *{card.title}*\nРедкость: {card.rarity_key}\nПродавец: {seller_name}\nР¦РµРЅР°: {lot.price} {lot.currency}\nКомиссия: {lot.fee_percent}%\nСтатус: {lot.status}"
-    await message.answer(text, reply_markup=ik_market_lot_actions(lot.id, can_buy=lot.seller_id != message.from_user.id and lot.status == 'active', can_cancel=lot.seller_id == message.from_user.id and lot.status == 'active'), parse_mode='Markdown')
-
-async def render_marriage_screen(message: Message) -> None:
-    async with SessionLocal() as session:
-        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.marriage', 'Здесь вы можете сделать предложение, проверить входящие и открыть экран вашей пары.')
-    text = f"{h('💍 Брак')}\n{body}"
+async def screen_marriage(message: Message) -> None:
+    text = f"{h('\U0001f48d \u0411\u0440\u0430\u043a')}\n\u0417\u0434\u0435\u0441\u044c \u043c\u043e\u0436\u043d\u043e \u0441\u0434\u0435\u043b\u0430\u0442\u044c \u043f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0435, \u043e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u0440\u043e\u0444\u0438\u043b\u044c \u043f\u0430\u0440\u044b \u0438 \u043f\u043e\u0441\u043c\u043e\u0442\u0440\u0435\u0442\u044c \u0432\u0445\u043e\u0434\u044f\u0449\u0438\u0435 \u0437\u0430\u044f\u0432\u043a\u0438."
     await message.answer(text, reply_markup=ik_marriage_menu())
 
-async def render_marriage_pair(message: Message) -> None:
-    if message.from_user is None:
-        return
-    async with SessionLocal() as session:
-        service = BrawlCardsService(session)
-        pair = await service.marriage_of(message.from_user.id)
-    if pair is None:
-        await message.answer(f"{h('💍 Брак')}\nВы пока не состоите в браке.", reply_markup=ik_marriage_menu())
-        return
-    partner_id = pair.user2_id if pair.user1_id == message.from_user.id else pair.user1_id
-    text = f"{h('💍 Пара')}\nВаш союз активен.\nПартнёр ID: `{partner_id}`\nДата: {pair.created_at.date().isoformat()}\nБонусы пары и совместный профиль уже готовы для дальнейшего расширения."
-    await message.answer(text, reply_markup=ik_marriage_menu(), parse_mode='Markdown')
 
 async def render_marriage_inbox(message: Message) -> None:
     if message.from_user is None:
@@ -780,11 +359,12 @@ async def render_marriage_inbox(message: Message) -> None:
         service = BrawlCardsService(session)
         rows = await service.marriage_inbox(message.from_user.id)
     if not rows:
-        await message.answer(f"{h('РЎР‚РЎСџРІР‚в„ўР\xa0РЉ Р\xa0\xa0РІР‚\x98Р\xa0РЋР\xa0вЂљР\xa0\xa0Р’В°Р\xa0\xa0РЎвЂќ')}\nВходящих предложений нет.", reply_markup=ik_marriage_menu())
+        await message.answer(f"{h('\U0001f48d \u0412\u0445\u043e\u0434\u044f\u0449\u0438\u0435 \u043f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u044f')}\n\u0412\u0445\u043e\u0434\u044f\u0449\u0438\u0445 \u043f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0439 \u043d\u0435\u0442.", reply_markup=ik_marriage_menu())
         return
     for row in rows[:10]:
-        text = f"{h('💍 Предложение')}\nID: `{row.id}`\nОт пользователя: `{row.proposer_id}`\nДата: {row.created_at.date().isoformat()}"
+        text = f"{h('\U0001f48d \u041f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0435')}\nID: `{row.id}`\n\u041e\u0442 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f: `{row.proposer_id}`\n\u0414\u0430\u0442\u0430: {row.created_at.date().isoformat()}"
         await message.answer(text, reply_markup=ik_marriage_proposal(row.id), parse_mode='Markdown')
+
 
 async def render_settings_screen(message: Message) -> None:
     if message.from_user is None:
@@ -792,9 +372,19 @@ async def render_settings_screen(message: Message) -> None:
     async with SessionLocal() as session:
         service = BrawlCardsService(session)
         s = await service.user_settings(message.from_user.id)
-        body = await template_text(session, message.from_user.id, 'screen.settings', 'Управляйте уведомлениями, языком, приватностью, стилем выдачи карт и безопасным режимом.')
-    text = f"{h('⚙️ Настройки')}\n{body}\n\n🔔 Уведомления: {('вкл' if s.notifications else 'выкл')}\n🌐 Язык: {s.locale}\n🔐 Приватность: {('скрытая' if (s.privacy or {}).get('hidden') else 'обычная')}\n🧾 Подтверждение покупок: {('вкл' if s.confirm_purchases else 'выкл')}\n🃏 Стиль выдачи карт: {s.card_style}\n🖼 Отображение медиа: {('вкл' if s.show_media else 'выкл')}\n🛡 Безопасный режим: {('вкл' if s.safe_mode else 'выкл')}"
+        body = await template_text(session, message.from_user.id, 'screen.settings', '\u0423\u043f\u0440\u0430\u0432\u043b\u044f\u0439\u0442\u0435 \u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f\u043c\u0438, \u044f\u0437\u044b\u043a\u043e\u043c, \u043f\u0440\u0438\u0432\u0430\u0442\u043d\u043e\u0441\u0442\u044c\u044e, \u0441\u0442\u0438\u043b\u0435\u043c \u0432\u044b\u0434\u0430\u0447\u0438 \u043a\u0430\u0440\u0442 \u0438 \u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u044b\u043c \u0440\u0435\u0436\u0438\u043c\u043e\u043c.')
+    text = (
+        f"{h('\u2699\ufe0f \u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438')}\n{body}\n\n"
+        f"\U0001f514 \u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f: {'\u0432\u043a\u043b' if s.notifications else '\u0432\u044b\u043a\u043b'}\n"
+        f"\U0001f310 \u042f\u0437\u044b\u043a: {s.locale}\n"
+        f"\U0001f510 \u041f\u0440\u0438\u0432\u0430\u0442\u043d\u043e\u0441\u0442\u044c: {'\u0441\u043a\u0440\u044b\u0442\u0430\u044f' if (s.privacy or {}).get('hidden') else '\u043e\u0431\u044b\u0447\u043d\u0430\u044f'}\n"
+        f"\U0001f9fe \u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0438\u0435 \u043f\u043e\u043a\u0443\u043f\u043e\u043a: {'\u0432\u043a\u043b' if s.confirm_purchases else '\u0432\u044b\u043a\u043b'}\n"
+        f"\U0001f0cf \u0421\u0442\u0438\u043b\u044c \u0432\u044b\u0434\u0430\u0447\u0438 \u043a\u0430\u0440\u0442: {s.card_style}\n"
+        f"\U0001f5bc \u041e\u0442\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u0435 \u043c\u0435\u0434\u0438\u0430: {'\u0432\u043a\u043b' if s.show_media else '\u0432\u044b\u043a\u043b'}\n"
+        f"\U0001f6e1 \u0411\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u044b\u0439 \u0440\u0435\u0436\u0438\u043c: {'\u0432\u043a\u043b' if s.safe_mode else '\u0432\u044b\u043a\u043b'}"
+    )
     await message.answer(text, reply_markup=ik_settings())
+
 
 async def render_admin_section_v2(message: Message, section: str) -> bool:
     if message.from_user is None or not is_admin_id(message.from_user.id):
@@ -980,13 +570,14 @@ async def render_inventory_screen(message: Message) -> None:
     async with SessionLocal() as session:
         rows = (await session.execute(select(BcBooster.title, BcActiveBooster.stacks, BcActiveBooster.active_until).join(BcActiveBooster, BcActiveBooster.booster_key == BcBooster.key).where(BcActiveBooster.user_id == message.from_user.id).order_by(BcBooster.key))).all()
     if not rows:
-        await message.answer(f"{h('СЂСџР‹вЂ™ Р\xa0\x98Р\xa0Р…Р\xa0Р†Р\xa0ВµР\xa0Р…РЎвЂљР\xa0В°РЎР‚РЎРЉ')}\nАктивных бустеров пока нет.", reply_markup=ik_profile())
+        await message.answer(f"{h('\u26a1 \u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0435 \u0431\u0443\u0441\u0442\u0435\u0440\u044b')}\n\u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u0431\u0443\u0441\u0442\u0435\u0440\u043e\u0432 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442.", reply_markup=ik_profile())
         return
-    lines = [h('СЂСџР‹вЂ™ Р\xa0\x98Р\xa0Р…Р\xa0Р†Р\xa0ВµР\xa0Р…РЎвЂљР\xa0В°РЎР‚РЎРЉ'), 'Здесь показаны ваши активные бустеры:']
+    lines = [h('\u26a1 \u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0435 \u0431\u0443\u0441\u0442\u0435\u0440\u044b'), '\u0417\u0434\u0435\u0441\u044c \u043f\u043e\u043a\u0430\u0437\u0430\u043d\u044b \u0432\u0430\u0448\u0438 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0435 \u0431\u0443\u0441\u0442\u0435\u0440\u044b:']
     for title, stacks, active_until in rows:
-        until = active_until.isoformat(timespec='minutes') if active_until else 'без таймера'
-        lines.append(f"• {title} x{stacks} | {until}")
+        until = active_until.isoformat(timespec='minutes') if active_until else '\u0431\u0435\u0437 \u0442\u0430\u0439\u043c\u0435\u0440\u0430'
+        lines.append(f"\u2022 {title} x{stacks} | {until}")
     await message.answer('\n'.join(lines), reply_markup=ik_profile())
+
 
 async def render_profile_stats_screen(message: Message) -> None:
     if message.from_user is None:
@@ -995,12 +586,25 @@ async def render_profile_stats_screen(message: Message) -> None:
         user = await session.get(User, message.from_user.id)
         profile = await session.get(UserProfile, message.from_user.id)
         if user is None or profile is None:
-            await message.answer(f"{h('📈 Статистика')}\nПрофиль не найден.", reply_markup=ik_profile())
+            await message.answer(f"{h('\U0001f4c8 \u0421\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043a\u0430')}\n\u041f\u0440\u043e\u0444\u0438\u043b\u044c \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d.", reply_markup=ik_profile())
             return
         total_cards = await session.scalar(select(func.count()).select_from(BcCardInstance).where(BcCardInstance.user_id == user.id))
         unique_cards = await session.scalar(select(func.count(func.distinct(BcCardInstance.card_id))).where(BcCardInstance.user_id == user.id))
-    text = f"{h('📈 Статистика')}\nОчки: {user.total_points}\nМонеты: {user.coins}\nЗвёзды: {user.stars}\nВсего карт: {int(total_cards or 0)}\nУникальных карт: {int(unique_cards or 0)}\nР\xa0\x98Р\xa0С–РЎР‚ РЎРѓРЎвЂ№Р\xa0С–РЎР‚Р\xa0В°Р\xa0Р…Р\xa0С•: {profile.games_played}\nПобед: {profile.games_won}\nПродано на маркете: {profile.market_sold}\nКуплено на маркете: {profile.market_bought}\nЗаданий выполнено: {profile.tasks_done}"
+    text = (
+        f"{h('\U0001f4c8 \u0421\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043a\u0430')}\n"
+        f"\u041e\u0447\u043a\u0438: {user.total_points}\n"
+        f"\u041c\u043e\u043d\u0435\u0442\u044b: {user.coins}\n"
+        f"\u0417\u0432\u0451\u0437\u0434\u044b: {user.stars}\n"
+        f"\u0412\u0441\u0435\u0433\u043e \u043a\u0430\u0440\u0442: {int(total_cards or 0)}\n"
+        f"\u0423\u043d\u0438\u043a\u0430\u043b\u044c\u043d\u044b\u0445 \u043a\u0430\u0440\u0442: {int(unique_cards or 0)}\n"
+        f"\u0418\u0433\u0440 \u0441\u044b\u0433\u0440\u0430\u043d\u043e: {profile.games_played}\n"
+        f"\u041f\u043e\u0431\u0435\u0434: {profile.games_won}\n"
+        f"\u041f\u0440\u043e\u0434\u0430\u043d\u043e \u043d\u0430 \u043c\u0430\u0440\u043a\u0435\u0442\u0435: {profile.market_sold}\n"
+        f"\u041a\u0443\u043f\u043b\u0435\u043d\u043e \u043d\u0430 \u043c\u0430\u0440\u043a\u0435\u0442\u0435: {profile.market_bought}\n"
+        f"\u0417\u0430\u0434\u0430\u043d\u0438\u0439 \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u043e: {profile.tasks_done}"
+    )
     await message.answer(text, reply_markup=ik_profile())
+
 
 async def render_my_cards_screen(message: Message) -> None:
     if message.from_user is None:
@@ -1134,6 +738,163 @@ async def show_screen(message: Message, screen: str) -> None:
         await screen_admin(message)
     else:
         await screen_main(message)
+
+
+CARD_WIZARD_STEPS: dict[str, list[str]] = {
+    'create': ['key', 'title', 'description', 'rarity_key', 'series', 'points', 'coins', 'drop_weight', 'is_limited', 'is_sellable', 'is_active', 'sort', 'photo'],
+    'edit': ['title', 'description', 'rarity_key', 'series', 'points', 'coins', 'drop_weight', 'is_limited', 'is_sellable', 'is_active', 'sort', 'photo'],
+}
+
+
+async def resolve_rarity_key(session, raw: str) -> str | None:
+    value = raw.strip()
+    if not value:
+        return None
+    rarity = await session.get(BcRarity, value)
+    if rarity is not None:
+        return rarity.key
+    rows = (await session.scalars(select(BcRarity).where(func.lower(BcRarity.title) == value.lower()))).all()
+    if rows:
+        return rows[0].key
+    return None
+
+
+async def card_rarity_hint(session) -> str:
+    rows = (await session.scalars(select(BcRarity).order_by(BcRarity.sort, BcRarity.key))).all()
+    if not rows:
+        return '\u0420\u0435\u0434\u043a\u043e\u0441\u0442\u0438 \u0435\u0449\u0451 \u043d\u0435 \u0441\u043e\u0437\u0434\u0430\u043d\u044b.'
+    parts = [f"`{row.key}` ({row.emoji} {row.title})" for row in rows]
+    return '\u0414\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0435 \u0440\u0435\u0434\u043a\u043e\u0441\u0442\u0438: ' + ', '.join(parts)
+
+
+def card_wizard_prompt(mode: str, step: str, data: dict) -> str:
+    title = '\u2795 \u0414\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438' if mode == 'create' else '\u270f\ufe0f \u0420\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438'
+    labels = {
+        'key': 'key \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438',
+        'title': '\u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438',
+        'description': '\u043e\u043f\u0438\u0441\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438',
+        'rarity_key': '\u0440\u0435\u0434\u043a\u043e\u0441\u0442\u044c \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438',
+        'series': '\u0441\u0435\u0440\u0438\u044e \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438',
+        'points': '\u043e\u0447\u043a\u0438 \u0437\u0430 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0443',
+        'coins': '\u043c\u043e\u043d\u0435\u0442\u044b \u0437\u0430 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0443',
+        'drop_weight': '\u0448\u0430\u043d\u0441 \u0432\u044b\u043f\u0430\u0434\u0435\u043d\u0438\u044f',
+        'is_limited': '\u043b\u0438\u043c\u0438\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u043e\u0441\u0442\u044c',
+        'is_sellable': '\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u043e\u0441\u0442\u044c \u043f\u0440\u043e\u0434\u0430\u0436\u0438',
+        'is_active': '\u0430\u043a\u0442\u0438\u0432\u043d\u043e\u0441\u0442\u044c \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438',
+        'sort': '\u0441\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u043a\u0443',
+        'photo': '\u0444\u043e\u0442\u043e \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438',
+    }
+    hints = {
+        'key': '\u041f\u0440\u0438\u043c\u0435\u0440: `rustblade`',
+        'title': '\u041f\u0440\u0438\u043c\u0435\u0440: `Rustblade`',
+        'description': '\u041a\u043e\u0440\u043e\u0442\u043a\u043e\u0435 \u043e\u043f\u0438\u0441\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.',
+        'rarity_key': '\u0423\u043a\u0430\u0436\u0438\u0442\u0435 `key` \u0440\u0435\u0434\u043a\u043e\u0441\u0442\u0438.',
+        'series': '\u041f\u0440\u0438\u043c\u0435\u0440: `Core`',
+        'points': '\u0426\u0435\u043b\u043e\u0435 \u0447\u0438\u0441\u043b\u043e.',
+        'coins': '\u0426\u0435\u043b\u043e\u0435 \u0447\u0438\u0441\u043b\u043e.',
+        'drop_weight': '\u0427\u0438\u0441\u043b\u043e: `1` \u0438\u043b\u0438 `0.35`.',
+        'is_limited': '\u041d\u0430\u043f\u0438\u0448\u0438\u0442\u0435 `1`/`0` \u0438\u043b\u0438 `\u0434\u0430`/`\u043d\u0435\u0442`.',
+        'is_sellable': '\u041d\u0430\u043f\u0438\u0448\u0438\u0442\u0435 `1`/`0` \u0438\u043b\u0438 `\u0434\u0430`/`\u043d\u0435\u0442`.',
+        'is_active': '\u041d\u0430\u043f\u0438\u0448\u0438\u0442\u0435 `1`/`0` \u0438\u043b\u0438 `\u0434\u0430`/`\u043d\u0435\u0442`.',
+        'sort': '\u0426\u0435\u043b\u043e\u0435 \u0447\u0438\u0441\u043b\u043e. \u041e\u0431\u044b\u0447\u043d\u043e `100`.',
+        'photo': '\u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 \u0444\u043e\u0442\u043e \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435\u043c \u0438\u043b\u0438 `-`, \u0447\u0442\u043e\u0431\u044b \u043f\u0440\u043e\u043f\u0443\u0441\u0442\u0438\u0442\u044c.',
+    }
+    steps = CARD_WIZARD_STEPS.get(mode, CARD_WIZARD_STEPS['create'])
+    index = steps.index(step) + 1
+    total = len(steps)
+    current_value = data.get(step)
+    current_line = ''
+    if current_value not in (None, ''):
+        current_line = f"\n\u0422\u0435\u043a\u0443\u0449\u0435\u0435 \u0437\u043d\u0430\u0447\u0435\u043d\u0438\u0435: `{current_value}`"
+    return (
+        f"{h(title)}\n"
+        f"\u0428\u0430\u0433 {index}/{total}.\n"
+        f"\u0412\u0432\u0435\u0434\u0438\u0442\u0435 {labels.get(step, step)}.\n"
+        f"{hints.get(step, '')}{current_line}"
+    )
+
+
+async def save_card_wizard_payload(session, service: BrawlCardsService, user_id: int, payload: dict) -> tuple[bool, str, int | None]:
+    mode = str(payload.get('mode') or 'create')
+    data = dict(payload.get('data') or {})
+
+    key = str(data.get('key') or '').strip().lower().replace(' ', '_')
+    title = str(data.get('title') or '').strip()
+    description = str(data.get('description') or '').strip()
+    rarity_key = str(data.get('rarity_key') or '').strip()
+    series = str(data.get('series') or 'Core').strip() or 'Core'
+    photo = str(data.get('photo') or '').strip() or None
+
+    if mode == 'create' and not key:
+        return (False, '\u041d\u0443\u0436\u0435\u043d key \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.', None)
+    if not title:
+        return (False, '\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u043e\u0431\u044f\u0437\u0430\u0442\u0435\u043b\u044c\u043d\u043e.', None)
+    if not description:
+        return (False, '\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u043e\u0431\u044f\u0437\u0430\u0442\u0435\u043b\u044c\u043d\u043e.', None)
+    if not rarity_key or await session.get(BcRarity, rarity_key) is None:
+        return (False, '\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430.', None)
+
+    try:
+        points = int(data.get('points') or 0)
+        coins = int(data.get('coins') or 0)
+        drop_weight = float(data.get('drop_weight') or 1)
+        is_limited = bool(int(data.get('is_limited') or 0))
+        is_sellable = bool(int(data.get('is_sellable') or 0))
+        is_active = bool(int(data.get('is_active') or 0))
+        sort = int(data.get('sort') or 100)
+    except (TypeError, ValueError):
+        return (False, '\u041e\u0434\u043d\u0430 \u0438\u0437 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u0437\u0430\u043f\u043e\u043b\u043d\u0435\u043d\u0430 \u043d\u0435\u0432\u0435\u0440\u043d\u043e.', None)
+
+    if mode == 'create':
+        if await session.scalar(select(BcCard.id).where(BcCard.key == key)) is not None:
+            return (False, '\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0430 \u0441 \u0442\u0430\u043a\u0438\u043c key \u0443\u0436\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442.', None)
+        card = BcCard(
+            key=key,
+            title=title,
+            description=description,
+            rarity_key=rarity_key,
+            series=series,
+            tags=[],
+            base_points=points,
+            base_coins=coins,
+            drop_weight=drop_weight,
+            is_limited=is_limited,
+            limited_series_id=None,
+            event_id=None,
+            image_file_id=photo,
+            image_url=None,
+            media_id=None,
+            is_sellable=is_sellable,
+            is_active=is_active,
+            sort=sort,
+            meta={},
+        )
+        session.add(card)
+        await session.flush()
+        await service.clear_input_state(user_id)
+        return (True, '\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0430.', card.id)
+
+    card_id = int(payload.get('id') or 0)
+    card = await session.get(BcCard, card_id)
+    if card is None:
+        return (False, '\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430.', None)
+
+    card.title = title
+    card.description = description
+    card.rarity_key = rarity_key
+    card.series = series
+    card.base_points = points
+    card.base_coins = coins
+    card.drop_weight = drop_weight
+    card.is_limited = is_limited
+    card.is_sellable = is_sellable
+    card.is_active = is_active
+    card.sort = sort
+    if photo is not None:
+        card.image_file_id = photo or None
+    await session.flush()
+    await service.clear_input_state(user_id)
+    return (True, '\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0430 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0430.', card.id)
 
 @router.message(CommandStart())
 async def on_start(message: Message) -> None:
@@ -2265,3 +2026,4 @@ async def on_photo_input(message: Message) -> None:
                     return
             await message.answer('Неизвестный режим формы.', reply_markup=main_menu())
             return
+

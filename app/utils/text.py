@@ -6,6 +6,13 @@ from typing import Any, Awaitable, Callable
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup
 
+_MOJIBAKE_CHUNKS = (
+    "Рџ", "Р»", "Р´", "Р¾", "Р°", "Рµ", "Р¸", "Рº",
+    "Р½", "Р¿", "Рё", "С‚", "СЃ", "СЂ", "С„", "С…",
+    "С‰", "Сљ", "Сњ", "Сќ", "Сћ", "С”", "в€", "ђ€",
+    "�",
+)
+
 
 def fix_text(text: Any) -> Any:
     if not isinstance(text, str) or not text:
@@ -17,19 +24,25 @@ def fix_text(text: Any) -> Any:
 
     while queue:
         current = queue.pop(0)
-        for encoding in ("cp1251", "latin1"):
-            try:
-                candidate = current.encode(encoding).decode("utf-8")
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                continue
+        for candidate in _decode_candidates(current):
             if candidate in seen:
                 continue
             seen.add(candidate)
             queue.append(candidate)
-            if _looks_better(candidate, best):
+            if _score(candidate) > _score(best):
                 best = candidate
 
     return best
+
+
+def _decode_candidates(text: str) -> list[str]:
+    out: list[str] = []
+    for src in ("cp1251", "latin1"):  # common mojibake paths for UTF-8 text
+        try:
+            out.append(text.encode(src).decode("utf-8"))
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+    return out
 
 
 def fix_markup(markup: Any) -> Any:
@@ -65,82 +78,26 @@ def install_aiogram_text_fixes() -> None:
     Bot._cards_text_fix_installed = True
 
 
-def _looks_better(candidate: str, current: str) -> bool:
-    return _score(candidate) > _score(current)
-
-
-def _score(text: str) -> tuple[int, int, int, int]:
+def _score(text: str) -> tuple[int, int, int, int, int]:
     return (
         _russian_score(text),
         -_mojibake_score(text),
         _emoji_score(text),
+        -text.count("?"),
         -len(text),
     )
 
 
+def _russian_score(text: str) -> int:
+    return sum(1 for ch in text if _is_cyrillic(ch))
+
+
 def _emoji_score(text: str) -> int:
-    return sum(1 for ch in text if ord(ch) > 0x2600)
+    return sum(1 for ch in text if ord(ch) >= 0x2600)
 
 
 def _mojibake_score(text: str) -> int:
-    bad_chunks = (
-        "?",
-        "?",
-        "??",
-        "??",
-        "??",
-        "??",
-        "??",
-        "??",
-        "??",
-        "???",
-        "???",
-        "??",
-    )
-    return sum(text.count(chunk) for chunk in bad_chunks)
-
-
-def _russian_score(text: str) -> int:
-    lower = text.lower()
-    score = 0
-    score += sum(1 for ch in text if _is_cyrillic(ch))
-    common_chunks = (
-        " ???????",
-        " ?????",
-        " ??????",
-        " ???????",
-        " ?????",
-        " ?????????",
-        " ?????",
-        " ????????",
-        " ????",
-        " ??????",
-        " ???????",
-        " ???????",
-        " ?????",
-        " ??????",
-        " ???????",
-        " ?????",
-        " ??",
-        " ????????",
-        " ?????",
-        " ??????",
-        " ??????",
-        " ??????",
-        " ????????",
-        " ????????",
-        " ?????",
-        " ????????",
-        " ?????",
-        " ???????",
-        " ????????",
-    )
-    score += sum(lower.count(chunk) * 8 for chunk in common_chunks)
-    good_bigrams = (
-        "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??",
-    )
-    score += sum(lower.count(chunk) * 2 for chunk in good_bigrams)
-    return score
+    return sum(text.count(chunk) for chunk in _MOJIBAKE_CHUNKS)
 
 
 def _is_cyrillic(ch: str) -> bool:
