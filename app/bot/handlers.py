@@ -2,7 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, FSInputFile, LabeledPrice, Message, PreCheckoutQuery
+from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Message, PreCheckoutQuery
 from sqlalchemy import and_, func, select
 from app.bot.keyboards import BTN_ADMIN, BTN_BONUS, BTN_CHEST, BTN_GAMES, BTN_GET_CARD, BTN_MARRIAGE, BTN_MARKET, BTN_PREMIUM, BTN_PROFILE, BTN_QUOTE, BTN_RP, BTN_SETTINGS, BTN_SHOP, BTN_STICKER, BTN_TASKS, BTN_TOP, MAIN_MENU_BUTTONS, ik_admin_card_wizard, ik_admin_main, ik_bonus_tasks, ik_games_menu, ik_game_stakes, ik_get_card, ik_list_nav, ik_marriage_menu, ik_marriage_proposal, ik_market_lot_actions, ik_market_menu, ik_nick, ik_profile, ik_quote_menu, ik_rp_actions, ik_rp_categories, ik_shop_categories, ik_settings, ik_sticker_menu, ik_top_select, ik_nav, main_menu
 from app.config import get_settings
@@ -787,6 +787,37 @@ async def card_rarity_hint(session) -> str:
     return '\u0414\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0435 \u0440\u0435\u0434\u043a\u043e\u0441\u0442\u0438: ' + ', '.join(parts)
 
 
+async def admin_card_wizard_markup(session, step: str) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if step == 'rarity_key':
+        rarities = (await session.scalars(select(BcRarity).order_by(BcRarity.sort, BcRarity.key))).all()
+        pair: list[InlineKeyboardButton] = []
+        for rarity in rarities[:12]:
+            pair.append(
+                InlineKeyboardButton(
+                    text=f"{rarity.emoji} {rarity.title}",
+                    callback_data=f"act:admin:card:wizard:value:{rarity.key}",
+                )
+            )
+            if len(pair) == 2:
+                rows.append(pair)
+                pair = []
+        if pair:
+            rows.append(pair)
+    if step in {'is_limited', 'is_sellable', 'is_active'}:
+        rows.append(
+            [
+                InlineKeyboardButton(text='✅ Да', callback_data='act:admin:card:wizard:value:1'),
+                InlineKeyboardButton(text='❌ Нет', callback_data='act:admin:card:wizard:value:0'),
+            ]
+        )
+    if step == 'photo':
+        rows.append([InlineKeyboardButton(text='⏭ Пропустить фото', callback_data='act:admin:card:wizard:skip_photo')])
+    rows.append([InlineKeyboardButton(text='❌ Отменить', callback_data='act:admin:card:wizard:cancel')])
+    rows.append([InlineKeyboardButton(text='🔙 К карточкам', callback_data='nav:admin:cards')])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def card_wizard_prompt(mode: str, step: str, data: dict) -> str:
     title = '\u2795 \u0414\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438' if mode == 'create' else '\u270f\ufe0f \u0420\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438'
     labels = {
@@ -915,6 +946,84 @@ async def save_card_wizard_payload(session, service: BrawlCardsService, user_id:
     await session.flush()
     await service.clear_input_state(user_id)
     return (True, '\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0430 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0430.', card.id)
+
+
+async def consume_admin_card_wizard_input(session, service: BrawlCardsService, user_id: int, raw: str) -> dict:
+    state = await service.get_input_state(user_id)
+    if state is None or state.state != 'admin_card_wizard':
+        return {'done': True, 'text': 'Конструктор карточки не активен.', 'reply_markup': main_menu()}
+
+    payload = dict(state.payload or {})
+    mode = str(payload.get('mode') or 'create')
+    step = str(payload.get('step') or '')
+    data = dict(payload.get('data') or {})
+    steps = CARD_WIZARD_STEPS.get(mode, CARD_WIZARD_STEPS['create'])
+
+    if raw.lower() in {'отмена', 'cancel', '/cancel'}:
+        await service.clear_input_state(user_id)
+        return {'done': True, 'text': f"{h('🃏 Конструктор карточки')}\nСоздание или редактирование карточки отменено.", 'reply_markup': main_menu()}
+
+    if not step or step not in steps:
+        return {'done': True, 'text': 'Состояние конструктора карточки повреждено.', 'reply_markup': main_menu()}
+
+    if mode == 'edit' and raw == '-' and step != 'photo':
+        value = data.get(step)
+    else:
+        if step == 'key':
+            value = raw.lower().replace(' ', '_')
+            if not value:
+                return {'done': True, 'text': 'Нужен key карточки.', 'reply_markup': await admin_card_wizard_markup(session, step)}
+        elif step in {'title', 'description', 'series'}:
+            value = raw
+            if step in {'title', 'description'} and not value:
+                return {'done': True, 'text': 'Это поле обязательно.', 'reply_markup': await admin_card_wizard_markup(session, step)}
+        elif step == 'rarity_key':
+            resolved = await resolve_rarity_key(session, raw)
+            if resolved is None:
+                hint = await card_rarity_hint(session)
+                return {'done': True, 'text': f"Редкость не найдена.\n\n{hint}", 'reply_markup': await admin_card_wizard_markup(session, step), 'parse_mode': 'Markdown'}
+            value = resolved
+        elif step in {'points', 'coins', 'sort'}:
+            try:
+                value = int(raw)
+            except ValueError:
+                return {'done': True, 'text': 'Нужно целое число.', 'reply_markup': await admin_card_wizard_markup(session, step)}
+        elif step == 'drop_weight':
+            try:
+                value = float(raw)
+            except ValueError:
+                return {'done': True, 'text': 'Нужно число. Пример: `1` или `0.35`.', 'reply_markup': await admin_card_wizard_markup(session, step), 'parse_mode': 'Markdown'}
+        elif step in {'is_limited', 'is_sellable', 'is_active'}:
+            normalized = raw.lower()
+            if normalized not in {'0', '1', 'да', 'нет'}:
+                return {'done': True, 'text': 'Нужно `1/0` или `да/нет`.', 'reply_markup': await admin_card_wizard_markup(session, step), 'parse_mode': 'Markdown'}
+            value = 1 if normalized in {'1', 'да'} else 0
+        elif step == 'photo':
+            if raw != '-':
+                return {'done': True, 'text': 'На этом шаге отправьте фото или `-`.', 'reply_markup': await admin_card_wizard_markup(session, step), 'parse_mode': 'Markdown'}
+            value = data.get('photo') or ''
+        else:
+            value = raw
+
+    if step == 'photo':
+        data['photo'] = value
+        payload['data'] = data
+        ok, resp, card_id = await save_card_wizard_payload(session, service, user_id, payload)
+        return {'done': True, 'text': resp, 'reply_markup': main_menu(), 'card_id': card_id if ok else None}
+
+    data[step] = value
+    next_index = steps.index(step) + 1
+    next_step = steps[next_index]
+    await service.set_input_state(user_id, 'admin_card_wizard', {'mode': mode, 'id': payload.get('id'), 'step': next_step, 'data': data})
+    extra = ''
+    if next_step == 'rarity_key':
+        extra = f"\n\n{await card_rarity_hint(session)}"
+    return {
+        'done': False,
+        'text': f"{card_wizard_prompt(mode, next_step, data)}{extra}",
+        'reply_markup': await admin_card_wizard_markup(session, next_step),
+        'parse_mode': 'Markdown',
+    }
 
 @router.message(CommandStart())
 async def on_start(message: Message) -> None:
@@ -1228,9 +1337,9 @@ async def on_action(callback: CallbackQuery) -> None:
                 await service.set_input_state(callback.from_user.id, 'admin_card_wizard', {'mode': 'create', 'step': 'key', 'data': {}})
                 rarity_hint = await card_rarity_hint(session)
                 await callback.message.answer(
-                    f"{card_wizard_prompt('create', 'key', {})}\n\n{rarity_hint}\n\nДля отмены нажмите кнопку ниже.",
+                    f"{card_wizard_prompt('create', 'key', {})}\n\n{rarity_hint}\n\n??? ?????? ??????? ?????? ????.",
                     parse_mode='Markdown',
-                    reply_markup=ik_admin_card_wizard(),
+                    reply_markup=await admin_card_wizard_markup(session, 'key'),
                 )
                 return
             if action.startswith('act:admin:card:edit:'):
@@ -1240,7 +1349,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 card_id = int(action.split(':', maxsplit=4)[4])
                 card = await session.get(BcCard, card_id)
                 if card is None:
-                    await callback.message.answer('Карточка не найдена.', reply_markup=main_menu())
+                    await callback.message.answer('???????? ?? ???????.', reply_markup=main_menu())
                     return
                 data = {
                     'title': card.title,
@@ -1258,17 +1367,31 @@ async def on_action(callback: CallbackQuery) -> None:
                 }
                 await service.set_input_state(callback.from_user.id, 'admin_card_wizard', {'mode': 'edit', 'id': card_id, 'step': 'title', 'data': data})
                 await callback.message.answer(
-                    f"{h('🃏 Редактор карточки')}\nПошаговое редактирование начато.\nНа любом текстовом шаге отправьте `-`, чтобы оставить текущее значение.\n\n{card_wizard_prompt('edit', 'title', data)}",
+                    f"{h('?? ???????? ????????')}\n????????? ?????????????? ??????.\n?? ????? ????????? ???? ????????? `-`, ????? ???????? ??????? ????????.\n\n{card_wizard_prompt('edit', 'title', data)}",
                     parse_mode='Markdown',
-                    reply_markup=ik_admin_card_wizard(),
+                    reply_markup=await admin_card_wizard_markup(session, 'title'),
                 )
+                return
+            if action.startswith('act:admin:card:wizard:value:'):
+                if not is_admin_id(callback.from_user.id):
+                    await callback.message.answer('Access denied', reply_markup=main_menu())
+                    return
+                raw = action.split(':', maxsplit=5)[5]
+                result = await consume_admin_card_wizard_input(session, service, callback.from_user.id, raw)
+                await callback.message.answer(
+                    result['text'],
+                    parse_mode=result.get('parse_mode'),
+                    reply_markup=result.get('reply_markup') or main_menu(),
+                )
+                if result.get('done') and result.get('card_id'):
+                    await screen_admin_card(callback.message, int(result['card_id']))
                 return
             if action == 'act:admin:card:wizard:cancel':
                 if not is_admin_id(callback.from_user.id):
                     await callback.message.answer('Access denied', reply_markup=main_menu())
                     return
                 await service.clear_input_state(callback.from_user.id)
-                await callback.message.answer(f"{h('🃏 Конструктор карточки')}\nСоздание или редактирование карточки отменено.", reply_markup=main_menu())
+                await callback.message.answer(f"{h('?? ??????????? ????????')}\n???????? ??? ?????????????? ???????? ????????.", reply_markup=main_menu())
                 return
             if action == 'act:admin:card:wizard:skip_photo':
                 if not is_admin_id(callback.from_user.id):
@@ -1276,17 +1399,20 @@ async def on_action(callback: CallbackQuery) -> None:
                     return
                 state = await service.get_input_state(callback.from_user.id)
                 if state is None or state.state != 'admin_card_wizard':
-                    await callback.message.answer(f"{h('🃏 Конструктор карточки')}\nНет активного шага с фото.", reply_markup=main_menu())
+                    await callback.message.answer(f"{h('?? ??????????? ????????')}\n??? ????????? ???? ? ????.", reply_markup=main_menu())
                     return
                 payload = dict(state.payload or {})
                 if str(payload.get('step') or '') != 'photo':
-                    await callback.message.answer(f"{h('🃏 Конструктор карточки')}\nПропуск доступен только на шаге с фото.", reply_markup=main_menu())
+                    await callback.message.answer(f"{h('?? ??????????? ????????')}\n??????? ???????? ?????? ?? ???? ? ????.", reply_markup=main_menu())
                     return
-                async with session.begin():
-                    ok, resp, card_id = await save_card_wizard_payload(session, service, callback.from_user.id, payload)
-                await callback.message.answer(resp, reply_markup=main_menu())
-                if ok and card_id:
-                    await screen_admin_card(callback.message, card_id)
+                result = await consume_admin_card_wizard_input(session, service, callback.from_user.id, '-')
+                await callback.message.answer(
+                    result['text'],
+                    parse_mode=result.get('parse_mode'),
+                    reply_markup=result.get('reply_markup') or main_menu(),
+                )
+                if result.get('done') and result.get('card_id'):
+                    await screen_admin_card(callback.message, int(result['card_id']))
                 return
             if action.startswith('act:admin:card:duplicate:'):
                 if not is_admin_id(callback.from_user.id):
@@ -1718,91 +1844,14 @@ async def on_state_text_input(message: Message) -> None:
             if not is_admin_id(message.from_user.id):
                 await message.answer('Access denied', reply_markup=main_menu())
                 return
-            payload = dict(state.payload or {})
-            mode = str(payload.get('mode') or 'create')
-            step = str(payload.get('step') or '')
-            data = dict(payload.get('data') or {})
-            steps = CARD_WIZARD_STEPS.get(mode, CARD_WIZARD_STEPS['create'])
-
-            if raw.lower() in {'\u043e\u0442\u043c\u0435\u043d\u0430', 'cancel', '/cancel'}:
-                async with session.begin():
-                    await service.clear_input_state(message.from_user.id)
-                await message.answer(f"{h('\U0001f0cf \u041a\u043e\u043d\u0441\u0442\u0440\u0443\u043a\u0442\u043e\u0440 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438')}\n\u0421\u043e\u0437\u0434\u0430\u043d\u0438\u0435 \u0438\u043b\u0438 \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u043e\u0442\u043c\u0435\u043d\u0435\u043d\u043e.", reply_markup=main_menu())
-                return
-
-            if not step or step not in steps:
-                await message.answer('\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u043a\u043e\u043d\u0441\u0442\u0440\u0443\u043a\u0442\u043e\u0440\u0430 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u043f\u043e\u0432\u0440\u0435\u0436\u0434\u0435\u043d\u043e.', reply_markup=main_menu())
-                return
-
-            if mode == 'edit' and raw == '-' and step != 'photo':
-                value = data.get(step)
-            else:
-                if step == 'key':
-                    value = raw.lower().replace(' ', '_')
-                    if not value:
-                        await message.answer('\u041d\u0443\u0436\u0435\u043d key \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.', reply_markup=ik_admin_card_wizard())
-                        return
-                elif step in {'title', 'description', 'series'}:
-                    value = raw
-                    if step in {'title', 'description'} and not value:
-                        await message.answer('\u042d\u0442\u043e \u043f\u043e\u043b\u0435 \u043e\u0431\u044f\u0437\u0430\u0442\u0435\u043b\u044c\u043d\u043e.', reply_markup=ik_admin_card_wizard())
-                        return
-                elif step == 'rarity_key':
-                    resolved = await resolve_rarity_key(session, raw)
-                    if resolved is None:
-                        hint = await card_rarity_hint(session)
-                        await message.answer(f"\u0420\u0435\u0434\u043a\u043e\u0441\u0442\u044c \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430.\n\n{hint}", parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
-                        return
-                    value = resolved
-                elif step in {'points', 'coins', 'sort'}:
-                    try:
-                        value = int(raw)
-                    except ValueError:
-                        await message.answer('\u041d\u0443\u0436\u043d\u043e \u0446\u0435\u043b\u043e\u0435 \u0447\u0438\u0441\u043b\u043e.', reply_markup=ik_admin_card_wizard())
-                        return
-                elif step == 'drop_weight':
-                    try:
-                        value = float(raw)
-                    except ValueError:
-                        await message.answer('\u041d\u0443\u0436\u043d\u043e \u0447\u0438\u0441\u043b\u043e. \u041f\u0440\u0438\u043c\u0435\u0440: `1` \u0438\u043b\u0438 `0.35`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
-                        return
-                elif step in {'is_limited', 'is_sellable', 'is_active'}:
-                    normalized = raw.lower()
-                    if normalized not in {'0', '1', '\u0434\u0430', '\u043d\u0435\u0442'}:
-                        await message.answer('\u041d\u0443\u0436\u043d\u043e `1/0` \u0438\u043b\u0438 `\u0434\u0430/\u043d\u0435\u0442`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
-                        return
-                    value = 1 if normalized in {'1', '\u0434\u0430'} else 0
-                elif step == 'photo':
-                    if raw != '-':
-                        await message.answer('\u041d\u0430 \u044d\u0442\u043e\u043c \u0448\u0430\u0433\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 \u0444\u043e\u0442\u043e \u0438\u043b\u0438 `-`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard(can_skip_photo=True))
-                        return
-                    value = data.get('photo') or ''
-                else:
-                    value = raw
-
-            if step == 'photo':
-                data['photo'] = value
-                payload['data'] = data
-                async with session.begin():
-                    ok, resp, card_id = await save_card_wizard_payload(session, service, message.from_user.id, payload)
-                await message.answer(resp, reply_markup=main_menu())
-                if ok and card_id:
-                    await screen_admin_card(message, card_id)
-                return
-
-            data[step] = value
-            next_index = steps.index(step) + 1
-            next_step = steps[next_index]
-            async with session.begin():
-                await service.set_input_state(message.from_user.id, 'admin_card_wizard', {'mode': mode, 'id': payload.get('id'), 'step': next_step, 'data': data})
-            extra = ''
-            if next_step == 'rarity_key':
-                extra = f"\n\n{await card_rarity_hint(session)}"
+            result = await consume_admin_card_wizard_input(session, service, message.from_user.id, raw)
             await message.answer(
-                f"{card_wizard_prompt(mode, next_step, data)}{extra}",
-                parse_mode='Markdown',
-                reply_markup=ik_admin_card_wizard(can_skip_photo=(next_step == 'photo')),
+                result['text'],
+                parse_mode=result.get('parse_mode'),
+                reply_markup=result.get('reply_markup') or main_menu(),
             )
+            if result.get('done') and result.get('card_id'):
+                await screen_admin_card(message, int(result['card_id']))
             return
 
 @router.message(F.photo)
@@ -2250,4 +2299,5 @@ async def on_photo_input(message: Message) -> None:
                     return
             await message.answer('Неизвестный режим формы.', reply_markup=main_menu())
             return
+
 
