@@ -1043,6 +1043,12 @@ async def on_admin_command(message: Message) -> None:
 async def on_main_menu_button(message: Message) -> None:
     if message.text is None:
         return
+    if message.from_user is not None:
+        async with SessionLocal() as session:
+            service = BrawlCardsService(session)
+            state = await service.get_input_state(message.from_user.id)
+            if state is not None:
+                return
     await ensure_user(message)
     await show_screen(message, SCREEN_BY_BUTTON.get(message.text, 'main'))
 
@@ -1050,6 +1056,12 @@ async def on_main_menu_button(message: Message) -> None:
 async def on_menu_alias(message: Message) -> None:
     if message.text is None:
         return
+    if message.from_user is not None:
+        async with SessionLocal() as session:
+            service = BrawlCardsService(session)
+            state = await service.get_input_state(message.from_user.id)
+            if state is not None:
+                return
     await ensure_user(message)
     await show_screen(message, 'admin')
 
