@@ -741,17 +741,17 @@ async def show_screen(message: Message, screen: str) -> None:
     elif screen == 'tasks':
         await screen_tasks(message)
     elif screen == 'rp':
-        await render_rp_screen(message)
+        await screen_rp(message)
     elif screen == 'quote':
-        await render_quote_screen(message)
+        await screen_quote(message)
     elif screen == 'sticker':
-        await render_sticker_screen(message)
+        await screen_sticker(message)
     elif screen == 'games':
-        await render_games_screen(message)
+        await screen_games(message)
     elif screen == 'market':
-        await render_market_screen(message)
+        await screen_market(message)
     elif screen == 'marriage':
-        await render_marriage_screen(message)
+        await screen_marriage(message)
     elif screen == 'settings':
         await render_settings_screen(message)
     elif screen == 'admin':
@@ -1614,6 +1614,197 @@ async def on_successful_payment(message: Message) -> None:
         parse_mode="Markdown",
     )
 
+@router.message(F.text)
+async def on_state_text_input(message: Message) -> None:
+    if message.from_user is None or not message.text:
+        return
+    async with SessionLocal() as session:
+        service = BrawlCardsService(session)
+        state = await service.get_input_state(message.from_user.id)
+        if state is None:
+            return
+
+        raw = message.text.strip()
+
+        if state.state == 'nick_wait':
+            async with session.begin():
+                ok, resp = await service.change_nickname(message.from_user.id, raw)
+                if ok:
+                    await service.clear_input_state(message.from_user.id)
+            await message.answer(resp, reply_markup=main_menu(is_admin=is_admin_id(message.from_user.id)))
+            return
+
+        if state.state == 'rp_target_wait':
+            payload = dict(state.payload or {})
+            action_key = str(payload.get('action_key') or '')
+            target = await service.resolve_user_reference(raw)
+            if target is None:
+                await message.answer(f"{h('\U0001f3ad RP')}\n\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d. \u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 ID, @username \u0438\u043b\u0438 \u0441\u0441\u044b\u043b\u043a\u0443 `https://t.me/...`.", parse_mode='Markdown', reply_markup=main_menu())
+                return
+            async with session.begin():
+                result = await service.perform_rp_action_payload(
+                    message.from_user.id,
+                    action_key,
+                    target.id,
+                    message.chat.type if message.chat else None,
+                    message.chat.id if message.chat else None,
+                    message.message_id,
+                )
+                if result.get('ok'):
+                    await service.clear_input_state(message.from_user.id)
+            if not result.get('ok'):
+                await message.answer(f"{h('\U0001f3ad RP')}\n{result.get('message', '\u041e\u0448\u0438\u0431\u043a\u0430 RP-\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f.')}", reply_markup=main_menu())
+                return
+            await send_rp_result(message, f"{h('\U0001f3ad RP')}\n{result['text']}", result.get('media'))
+            return
+
+        if state.state == 'quote_wait':
+            async with session.begin():
+                await service.clear_input_state(message.from_user.id)
+            await message.answer(f"{h('\U0001f4ac \u0426\u0438\u0442\u0430\u0442\u0430')}\n\xab{raw}\xbb", reply_markup=main_menu())
+            return
+
+        if state.state == 'sticker_last_wait':
+            state_row = await session.get(BcUserState, message.from_user.id)
+            card = await session.get(BcCard, state_row.last_card_id) if state_row and state_row.last_card_id else None
+            if card is None:
+                await message.answer(f"{h('\U0001f3a8 \u0421\u0442\u0438\u043a\u0435\u0440')}\n\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0443.", reply_markup=main_menu())
+                return
+            out_file = build_card_image(card.title, card.rarity_key, card.description, raw, Path('data/generated'))
+            async with session.begin():
+                await service.clear_input_state(message.from_user.id)
+            await message.answer_photo(FSInputFile(out_file), caption=f"{h('\U0001f3a8 \u0421\u0442\u0438\u043a\u0435\u0440')}\n\u0421\u0442\u0438\u043a\u0435\u0440 \u043f\u043e \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0439 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0435 \u0433\u043e\u0442\u043e\u0432.", reply_markup=main_menu())
+            return
+
+        if state.state == 'sticker_template_wait':
+            out_file = build_card_image('Antonio', 'common', '\u0428\u0430\u0431\u043b\u043e\u043d\u043d\u044b\u0439 \u0441\u0442\u0438\u043a\u0435\u0440', raw, Path('data/generated'))
+            async with session.begin():
+                await service.clear_input_state(message.from_user.id)
+            await message.answer_photo(FSInputFile(out_file), caption=f"{h('\U0001f3a8 \u0421\u0442\u0438\u043a\u0435\u0440')}\n\u0428\u0430\u0431\u043b\u043e\u043d\u043d\u044b\u0439 \u0441\u0442\u0438\u043a\u0435\u0440 \u0433\u043e\u0442\u043e\u0432.", reply_markup=main_menu())
+            return
+
+        if state.state == 'market_sell_wait':
+            parts = [p.strip() for p in raw.split('|')]
+            if len(parts) != 3:
+                await message.answer(f"{h('\U0001f4b1 \u041c\u0430\u0440\u043a\u0435\u0442')}\n\u0424\u043e\u0440\u043c\u0430\u0442: `instance_id|coins_or_stars|price`", parse_mode='Markdown', reply_markup=main_menu())
+                return
+            instance_id, currency, price = parts
+            try:
+                instance_id_int = int(instance_id)
+                price_int = int(price)
+            except ValueError:
+                await message.answer(f"{h('\U0001f4b1 \u041c\u0430\u0440\u043a\u0435\u0442')}\n`instance_id` \u0438 `price` \u0434\u043e\u043b\u0436\u043d\u044b \u0431\u044b\u0442\u044c \u0447\u0438\u0441\u043b\u0430\u043c\u0438.", parse_mode='Markdown', reply_markup=main_menu())
+                return
+            async with session.begin():
+                ok, resp = await service.market_sell_instance(message.from_user.id, instance_id_int, currency, price_int)
+                if ok:
+                    await service.clear_input_state(message.from_user.id)
+            await message.answer(f"{h('\U0001f4b1 \u041c\u0430\u0440\u043a\u0435\u0442')}\n{resp}", reply_markup=main_menu())
+            return
+
+        if state.state == 'marriage_propose_wait':
+            target = await service.resolve_user_reference(raw)
+            if target is None:
+                await message.answer(f"{h('\U0001f48d \u0411\u0440\u0430\u043a')}\n\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d. \u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 ID, @username \u0438\u043b\u0438 \u0441\u0441\u044b\u043b\u043a\u0443.", reply_markup=main_menu())
+                return
+            async with session.begin():
+                ok, resp = await service.marriage_propose(message.from_user.id, target.id)
+                if ok:
+                    await service.clear_input_state(message.from_user.id)
+            await message.answer(f"{h('\U0001f48d \u0411\u0440\u0430\u043a')}\n{resp}", reply_markup=main_menu())
+            return
+
+        if state.state == 'admin_card_wizard':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Access denied', reply_markup=main_menu())
+                return
+            payload = dict(state.payload or {})
+            mode = str(payload.get('mode') or 'create')
+            step = str(payload.get('step') or '')
+            data = dict(payload.get('data') or {})
+            steps = CARD_WIZARD_STEPS.get(mode, CARD_WIZARD_STEPS['create'])
+
+            if raw.lower() in {'\u043e\u0442\u043c\u0435\u043d\u0430', 'cancel', '/cancel'}:
+                async with session.begin():
+                    await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('\U0001f0cf \u041a\u043e\u043d\u0441\u0442\u0440\u0443\u043a\u0442\u043e\u0440 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438')}\n\u0421\u043e\u0437\u0434\u0430\u043d\u0438\u0435 \u0438\u043b\u0438 \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u043e\u0442\u043c\u0435\u043d\u0435\u043d\u043e.", reply_markup=main_menu())
+                return
+
+            if not step or step not in steps:
+                await message.answer('\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u043a\u043e\u043d\u0441\u0442\u0440\u0443\u043a\u0442\u043e\u0440\u0430 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u043f\u043e\u0432\u0440\u0435\u0436\u0434\u0435\u043d\u043e.', reply_markup=main_menu())
+                return
+
+            if mode == 'edit' and raw == '-' and step != 'photo':
+                value = data.get(step)
+            else:
+                if step == 'key':
+                    value = raw.lower().replace(' ', '_')
+                    if not value:
+                        await message.answer('\u041d\u0443\u0436\u0435\u043d key \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438.', reply_markup=ik_admin_card_wizard())
+                        return
+                elif step in {'title', 'description', 'series'}:
+                    value = raw
+                    if step in {'title', 'description'} and not value:
+                        await message.answer('\u042d\u0442\u043e \u043f\u043e\u043b\u0435 \u043e\u0431\u044f\u0437\u0430\u0442\u0435\u043b\u044c\u043d\u043e.', reply_markup=ik_admin_card_wizard())
+                        return
+                elif step == 'rarity_key':
+                    resolved = await resolve_rarity_key(session, raw)
+                    if resolved is None:
+                        hint = await card_rarity_hint(session)
+                        await message.answer(f"\u0420\u0435\u0434\u043a\u043e\u0441\u0442\u044c \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430.\n\n{hint}", parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
+                        return
+                    value = resolved
+                elif step in {'points', 'coins', 'sort'}:
+                    try:
+                        value = int(raw)
+                    except ValueError:
+                        await message.answer('\u041d\u0443\u0436\u043d\u043e \u0446\u0435\u043b\u043e\u0435 \u0447\u0438\u0441\u043b\u043e.', reply_markup=ik_admin_card_wizard())
+                        return
+                elif step == 'drop_weight':
+                    try:
+                        value = float(raw)
+                    except ValueError:
+                        await message.answer('\u041d\u0443\u0436\u043d\u043e \u0447\u0438\u0441\u043b\u043e. \u041f\u0440\u0438\u043c\u0435\u0440: `1` \u0438\u043b\u0438 `0.35`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
+                        return
+                elif step in {'is_limited', 'is_sellable', 'is_active'}:
+                    normalized = raw.lower()
+                    if normalized not in {'0', '1', '\u0434\u0430', '\u043d\u0435\u0442'}:
+                        await message.answer('\u041d\u0443\u0436\u043d\u043e `1/0` \u0438\u043b\u0438 `\u0434\u0430/\u043d\u0435\u0442`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
+                        return
+                    value = 1 if normalized in {'1', '\u0434\u0430'} else 0
+                elif step == 'photo':
+                    if raw != '-':
+                        await message.answer('\u041d\u0430 \u044d\u0442\u043e\u043c \u0448\u0430\u0433\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 \u0444\u043e\u0442\u043e \u0438\u043b\u0438 `-`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard(can_skip_photo=True))
+                        return
+                    value = data.get('photo') or ''
+                else:
+                    value = raw
+
+            if step == 'photo':
+                data['photo'] = value
+                payload['data'] = data
+                async with session.begin():
+                    ok, resp, card_id = await save_card_wizard_payload(session, service, message.from_user.id, payload)
+                await message.answer(resp, reply_markup=main_menu())
+                if ok and card_id:
+                    await screen_admin_card(message, card_id)
+                return
+
+            data[step] = value
+            next_index = steps.index(step) + 1
+            next_step = steps[next_index]
+            async with session.begin():
+                await service.set_input_state(message.from_user.id, 'admin_card_wizard', {'mode': mode, 'id': payload.get('id'), 'step': next_step, 'data': data})
+            extra = ''
+            if next_step == 'rarity_key':
+                extra = f"\n\n{await card_rarity_hint(session)}"
+            await message.answer(
+                f"{card_wizard_prompt(mode, next_step, data)}{extra}",
+                parse_mode='Markdown',
+                reply_markup=ik_admin_card_wizard(can_skip_photo=(next_step == 'photo')),
+            )
+            return
+
 @router.message(F.photo)
 @router.message(F.photo)
 @router.message(F.photo)
@@ -1629,6 +1820,19 @@ async def on_photo_input(message: Message) -> None:
         if not is_admin_id(message.from_user.id):
             return
         file_id = message.photo[-1].file_id
+        if state.state == 'admin_card_wizard':
+            payload = dict(state.payload or {})
+            if str(payload.get('step') or '') != 'photo':
+                return
+            data = dict(payload.get('data') or {})
+            data['photo'] = file_id
+            payload['data'] = data
+            async with session.begin():
+                ok, resp, card_id = await save_card_wizard_payload(session, service, message.from_user.id, payload)
+            await message.answer(resp, reply_markup=main_menu())
+            if ok and card_id:
+                await screen_admin_card(message, card_id)
+            return
         if state.state == 'admin_card_photo':
             payload = dict(state.payload or {})
             card_id = int(payload.get('id') or 0)
