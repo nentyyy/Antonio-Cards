@@ -1349,7 +1349,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await service.set_input_state(callback.from_user.id, 'admin_card_wizard', {'mode': 'create', 'step': 'key', 'data': {}})
                 rarity_hint = await card_rarity_hint(session)
                 await callback.message.answer(
-                    f"{card_wizard_prompt('create', 'key', {})}\n\n{rarity_hint}\n\n??? ?????? ??????? ?????? ????.",
+                    f"{card_wizard_prompt('create', 'key', {})}\n\n{rarity_hint}\n\nДля отмены нажмите кнопку ниже.",
                     parse_mode='Markdown',
                     reply_markup=await admin_card_wizard_markup(session, 'key'),
                 )
@@ -1361,7 +1361,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 card_id = int(action.split(':', maxsplit=4)[4])
                 card = await session.get(BcCard, card_id)
                 if card is None:
-                    await callback.message.answer('???????? ?? ???????.', reply_markup=main_menu())
+                    await callback.message.answer('Карточка не найдена.', reply_markup=main_menu())
                     return
                 data = {
                     'title': card.title,
@@ -1379,7 +1379,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 }
                 await service.set_input_state(callback.from_user.id, 'admin_card_wizard', {'mode': 'edit', 'id': card_id, 'step': 'title', 'data': data})
                 await callback.message.answer(
-                    f"{h('?? ???????? ????????')}\n????????? ?????????????? ??????.\n?? ????? ????????? ???? ????????? `-`, ????? ???????? ??????? ????????.\n\n{card_wizard_prompt('edit', 'title', data)}",
+                    f"{h('🃏 Редактор карточки')}\nПошаговое редактирование начато.\nНа любом текстовом шаге отправьте `-`, чтобы оставить текущее значение.\n\n{card_wizard_prompt('edit', 'title', data)}",
                     parse_mode='Markdown',
                     reply_markup=await admin_card_wizard_markup(session, 'title'),
                 )
@@ -1403,7 +1403,7 @@ async def on_action(callback: CallbackQuery) -> None:
                     await callback.message.answer('Access denied', reply_markup=main_menu())
                     return
                 await service.clear_input_state(callback.from_user.id)
-                await callback.message.answer(f"{h('?? ??????????? ????????')}\n???????? ??? ?????????????? ???????? ????????.", reply_markup=main_menu())
+                await callback.message.answer(f"{h('🃏 Конструктор карточки')}\nСоздание или редактирование карточки отменено.", reply_markup=main_menu())
                 return
             if action == 'act:admin:card:wizard:skip_photo':
                 if not is_admin_id(callback.from_user.id):
@@ -1411,11 +1411,11 @@ async def on_action(callback: CallbackQuery) -> None:
                     return
                 state = await service.get_input_state(callback.from_user.id)
                 if state is None or state.state != 'admin_card_wizard':
-                    await callback.message.answer(f"{h('?? ??????????? ????????')}\n??? ????????? ???? ? ????.", reply_markup=main_menu())
+                    await callback.message.answer(f"{h('🃏 Конструктор карточки')}\nНет активного шага с фото.", reply_markup=main_menu())
                     return
                 payload = dict(state.payload or {})
                 if str(payload.get('step') or '') != 'photo':
-                    await callback.message.answer(f"{h('?? ??????????? ????????')}\n??????? ???????? ?????? ?? ???? ? ????.", reply_markup=main_menu())
+                    await callback.message.answer(f"{h('🃏 Конструктор карточки')}\nПропуск доступен только на шаге с фото.", reply_markup=main_menu())
                     return
                 result = await consume_admin_card_wizard_input(session, service, callback.from_user.id, '-')
                 await callback.message.answer(
@@ -1856,7 +1856,8 @@ async def on_state_text_input(message: Message) -> None:
             if not is_admin_id(message.from_user.id):
                 await message.answer('Access denied', reply_markup=main_menu())
                 return
-            result = await consume_admin_card_wizard_input(session, service, message.from_user.id, raw)
+            async with session.begin():
+                result = await consume_admin_card_wizard_input(session, service, message.from_user.id, raw)
             await message.answer(
                 result['text'],
                 parse_mode=result.get('parse_mode'),
