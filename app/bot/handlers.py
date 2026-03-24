@@ -1442,13 +1442,24 @@ async def on_action(callback: CallbackQuery) -> None:
                     return
                 raw = action.split(':', maxsplit=5)[5]
                 result = await consume_admin_card_wizard_input(session, service, callback.from_user.id, raw)
+                preview_text = None
+                if result.get('done') and result.get('card_id'):
+                    card = await session.get(BcCard, int(result['card_id']))
+                    if card is not None:
+                        preview_text = (
+                            f"{h('?? ???????? ?????????')}\n"
+                            f"????????: {card.title}\n"
+                            f"????????: {card.rarity_key}\n"
+                            f"?????: {card.series}\n"
+                            f"????: {'??' if bool(card.image_file_id) else '???'}"
+                        )
                 await callback.message.answer(
                     result['text'],
                     parse_mode=result.get('parse_mode'),
                     reply_markup=result.get('reply_markup') or main_menu(),
                 )
-                if result.get('done') and result.get('card_id'):
-                    await screen_admin_card(callback.message, int(result['card_id']))
+                if preview_text:
+                    await callback.message.answer(preview_text, reply_markup=main_menu())
                 return
             if action == 'act:admin:card:wizard:cancel':
                 if not is_admin_id(callback.from_user.id):
@@ -1463,20 +1474,31 @@ async def on_action(callback: CallbackQuery) -> None:
                     return
                 state = await service.get_input_state(callback.from_user.id)
                 if state is None or state.state != 'admin_card_wizard':
-                    await callback.message.answer(f"{h('🃏 Конструктор карточки')}\nНет активного шага с фото.", reply_markup=main_menu())
+                    await callback.message.answer(f"{h('?? ??????????? ????????')}\n??? ????????? ???? ? ????.", reply_markup=main_menu())
                     return
                 payload = dict(state.payload or {})
                 if str(payload.get('step') or '') != 'photo':
-                    await callback.message.answer(f"{h('🃏 Конструктор карточки')}\nПропуск доступен только на шаге с фото.", reply_markup=main_menu())
+                    await callback.message.answer(f"{h('?? ??????????? ????????')}\n??????? ???????? ?????? ?? ???? ? ????.", reply_markup=main_menu())
                     return
                 result = await consume_admin_card_wizard_input(session, service, callback.from_user.id, '-')
+                preview_text = None
+                if result.get('done') and result.get('card_id'):
+                    card = await session.get(BcCard, int(result['card_id']))
+                    if card is not None:
+                        preview_text = (
+                            f"{h('?? ???????? ?????????')}\n"
+                            f"????????: {card.title}\n"
+                            f"????????: {card.rarity_key}\n"
+                            f"?????: {card.series}\n"
+                            f"????: {'??' if bool(card.image_file_id) else '???'}"
+                        )
                 await callback.message.answer(
                     result['text'],
                     parse_mode=result.get('parse_mode'),
                     reply_markup=result.get('reply_markup') or main_menu(),
                 )
-                if result.get('done') and result.get('card_id'):
-                    await screen_admin_card(callback.message, int(result['card_id']))
+                if preview_text:
+                    await callback.message.answer(preview_text, reply_markup=main_menu())
                 return
             if action.startswith('act:admin:card:duplicate:'):
                 if not is_admin_id(callback.from_user.id):
@@ -1920,18 +1942,13 @@ async def on_state_text_input(message: Message) -> None:
             return
 
 @router.message(F.photo)
-@router.message(F.photo)
-@router.message(F.photo)
-@router.message(F.photo)
 async def on_photo_input(message: Message) -> None:
     if message.from_user is None or not message.photo:
         return
     async with SessionLocal() as session:
         service = BrawlCardsService(session)
         state = await service.get_input_state(message.from_user.id)
-        if state is None:
-            return
-        if not is_admin_id(message.from_user.id):
+        if state is None or not is_admin_id(message.from_user.id):
             return
         file_id = message.photo[-1].file_id
         if state.state == 'admin_card_wizard':
@@ -1941,24 +1958,25 @@ async def on_photo_input(message: Message) -> None:
             data = dict(payload.get('data') or {})
             data['photo'] = file_id
             payload['data'] = data
-            async with session.begin():
-                ok, resp, card_id = await save_card_wizard_payload(session, service, message.from_user.id, payload)
+            ok, resp, card_id = await save_card_wizard_payload(session, service, message.from_user.id, payload)
+            await session.commit()
             await message.answer(resp, reply_markup=main_menu())
             if ok and card_id:
-                await screen_admin_card(message, card_id)
+                await screen_admin_card(message, int(card_id))
             return
         if state.state == 'admin_card_photo':
             payload = dict(state.payload or {})
             card_id = int(payload.get('id') or 0)
-            async with session.begin():
-                card = await session.get(BcCard, card_id)
-                if card is None:
-                    await service.clear_input_state(message.from_user.id)
-                    await message.answer('Карточка не найдена.', reply_markup=main_menu())
-                    return
-                card.image_file_id = file_id
+            card = await session.get(BcCard, card_id)
+            if card is None:
                 await service.clear_input_state(message.from_user.id)
-            await message.answer('Фото карточки обновлено.', reply_markup=main_menu())
+                await session.commit()
+                await message.answer('???????? ?? ???????.', reply_markup=main_menu())
+                return
+            card.image_file_id = file_id
+            await service.clear_input_state(message.from_user.id)
+            await session.commit()
+            await message.answer('???? ???????? ?????????.', reply_markup=main_menu())
             await screen_admin_card(message, card_id)
             return
         if state.state == 'admin_rp_category_form':
