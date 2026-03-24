@@ -1,6 +1,8 @@
 from __future__ import annotations
+import asyncio
 from pathlib import Path
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Message, PreCheckoutQuery
 from sqlalchemy import and_, func, select
@@ -31,8 +33,22 @@ async def ensure_user(message: Message) -> User | None:
         return user
 
 
+async def ensure_user_background(user_id: int, username: str | None, first_name: str) -> None:
+    async with SessionLocal() as session:
+        service = BrawlCardsService(session)
+        await service.ensure_user(user_id=user_id, username=username, first_name=first_name)
+        await session.commit()
+
+
 def is_admin_id(user_id: int) -> bool:
     return user_id in get_settings().admin_id_set()
+
+
+async def safe_callback_answer(callback: CallbackQuery, text: str | None = None) -> None:
+    try:
+        await callback.answer(text)
+    except TelegramBadRequest:
+        pass
 
 
 async def template_text(session, user_id: int | None, key: str, fallback: str) -> str:
@@ -591,6 +607,68 @@ async def render_admin_section_v2(message: Message, section: str) -> bool:
             return True
     return False
 
+
+async def screen_admin_card(message: Message, card_id: int) -> None:
+    if message.from_user is None or not is_admin_id(message.from_user.id):
+        await message.answer('Доступ запрещён.', reply_markup=main_menu())
+        return
+    async with SessionLocal() as session:
+        card = await session.get(BcCard, card_id)
+        if card is None:
+            await message.answer('Карточка не найдена.', reply_markup=main_menu())
+            return
+        rarity = await session.get(BcRarity, card.rarity_key)
+        rarity_line = card.rarity_key
+        if rarity is not None:
+            rarity_line = f"{rarity.emoji} {rarity.title} ({rarity.key})"
+        text = '\n'.join(
+            [
+                h('🃏 Карточка'),
+                f"ID: {card.id}",
+                f"Key: {card.key}",
+                f"Название: {card.title}",
+                f"Описание: {card.description or '—'}",
+                f"Редкость: {rarity_line}",
+                f"Серия: {card.series}",
+                f"Очки: {card.base_points}",
+                f"Монеты: {card.base_coins}",
+                f"Шанс: {card.drop_weight}",
+                f"Лимитка: {'да' if card.is_limited else 'нет'}",
+                f"Продажа: {'да' if card.is_sellable else 'нет'}",
+                f"Активна: {'да' if card.is_active else 'нет'}",
+                f"Сортировка: {card.sort}",
+                f"Фото: {'есть' if card.image_file_id else 'нет'}",
+            ]
+        )
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text='✏️ Редактировать', callback_data=f'act:admin:card:edit:{card.id}'),
+                    InlineKeyboardButton(text='🖼 Фото', callback_data=f'act:admin:card:photo:{card.id}'),
+                ],
+                [
+                    InlineKeyboardButton(
+                        text='🔴 Деактивировать' if card.is_active else '🟢 Активировать',
+                        callback_data=f'act:admin:card:toggle_active:{card.id}',
+                    ),
+                    InlineKeyboardButton(
+                        text='🚫 Убрать из продажи' if card.is_sellable else '💰 В продажу',
+                        callback_data=f'act:admin:card:toggle_sell:{card.id}',
+                    ),
+                ],
+                [
+                    InlineKeyboardButton(text='📄 Дублировать', callback_data=f'act:admin:card:duplicate:{card.id}'),
+                    InlineKeyboardButton(text='🗑 Удалить', callback_data=f'act:admin:card:delete:{card.id}'),
+                ],
+                [InlineKeyboardButton(text='🔙 К карточкам', callback_data='nav:admin:cards')],
+            ]
+        )
+        if card.image_file_id:
+            await message.answer_photo(card.image_file_id, caption=text, reply_markup=kb)
+            return
+        await message.answer(text, reply_markup=kb)
+
+
 async def render_inventory_screen(message: Message) -> None:
     if message.from_user is None:
         return
@@ -1034,8 +1112,15 @@ async def consume_admin_card_wizard_input(session, service: BrawlCardsService, u
 
 @router.message(CommandStart())
 async def on_start(message: Message) -> None:
-    await ensure_user(message)
     await send_start(message)
+    if message.from_user is not None:
+        asyncio.create_task(
+            ensure_user_background(
+                user_id=message.from_user.id,
+                username=message.from_user.username,
+                first_name=message.from_user.first_name,
+            )
+        )
 
 @router.message(Command(commands=['help', '??????']))
 async def on_help(message: Message) -> None:
@@ -1121,7 +1206,7 @@ async def on_menu_alias(message: Message) -> None:
 async def on_nav(callback: CallbackQuery) -> None:
     if callback.message is None or callback.data is None:
         return
-    await callback.answer()
+    await safe_callback_answer(callback)
     parts = callback.data.split(':')
     screen = parts[1] if len(parts) > 1 else 'main'
     arg = parts[2] if len(parts) > 2 else None
@@ -1201,585 +1286,591 @@ async def on_nav(callback: CallbackQuery) -> None:
 async def on_action(callback: CallbackQuery) -> None:
     if callback.message is None or callback.data is None or callback.from_user is None:
         return
-    await callback.answer()
+    await safe_callback_answer(callback)
     action = callback.data
     async with SessionLocal() as session:
         service = BrawlCardsService(session)
-        async with session.begin():
-            await service.ensure_user(callback.from_user.id, callback.from_user.username, callback.from_user.first_name)
-            if action == 'act:nick:enter':
-                await service.set_input_state(callback.from_user.id, 'nick_wait', {})
-                await callback.message.answer(f"{h('✏️ Смена ника')}\nОтправьте новый ник одним сообщением.", reply_markup=main_menu())
+        await service.ensure_user(callback.from_user.id, callback.from_user.username, callback.from_user.first_name)
+        await session.commit()
+
+        async def respond(*args, **kwargs):
+            await session.commit()
+            return await callback.message.answer(*args, **kwargs)
+        if action == 'act:nick:enter':
+            await service.set_input_state(callback.from_user.id, 'nick_wait', {})
+            await respond(f"{h('✏️ Смена ника')}\nОтправьте новый ник одним сообщением.", reply_markup=main_menu())
+            return
+        if action == 'act:card:repeat_later':
+            cd = await service.get_cooldown(callback.from_user.id, 'brawl_cards')
+            await respond(f"{h('🃏 Получить карту')}\nОжидание: {seconds_to_hms(cd.seconds_left)}", reply_markup=main_menu())
+            return
+        if action == 'act:card:open_full':
+            state = await session.get(BcUserState, callback.from_user.id)
+            if state is None or state.last_card_id is None:
+                await respond(f"{h('🖼 Карточка')}\nНет последней карты.", reply_markup=main_menu())
                 return
-            if action == 'act:card:repeat_later':
-                cd = await service.get_cooldown(callback.from_user.id, 'brawl_cards')
-                await callback.message.answer(f"{h('🃏 Получить карту')}\nОжидание: {seconds_to_hms(cd.seconds_left)}", reply_markup=main_menu())
+            card = await session.get(BcCard, state.last_card_id)
+            if card is None:
+                await respond(f"{h('🖼 Карточка')}\nКарта не найдена.", reply_markup=main_menu())
                 return
-            if action == 'act:card:open_full':
-                state = await session.get(BcUserState, callback.from_user.id)
-                if state is None or state.last_card_id is None:
-                    await callback.message.answer(f"{h('🖼 Карточка')}\nНет последней карты.", reply_markup=main_menu())
-                    return
-                card = await session.get(BcCard, state.last_card_id)
-                if card is None:
-                    await callback.message.answer(f"{h('🖼 Карточка')}\nКарта не найдена.", reply_markup=main_menu())
-                    return
-                if card.image_file_id:
-                    await callback.message.answer_photo(card.image_file_id, caption=f"{h('🖼 Карточка полностью')}\n*{card.title}*\n{card.description}", parse_mode='Markdown')
-                else:
-                    await callback.message.answer(f"{h('🖼 Карточка полностью')}\n*{card.title}*\n{card.description}", parse_mode='Markdown')
+            if card.image_file_id:
+                await callback.message.answer_photo(card.image_file_id, caption=f"{h('🖼 Карточка полностью')}\n*{card.title}*\n{card.description}", parse_mode='Markdown')
+            else:
+                await respond(f"{h('🖼 Карточка полностью')}\n*{card.title}*\n{card.description}", parse_mode='Markdown')
+            return
+        if action == 'act:card:to_collection':
+            await respond(f"{h('📂 Коллекция')}\nКарта уже добавлена в коллекцию автоматически.", reply_markup=main_menu())
+            return
+        if action.startswith('act:buy_xtr:'):
+            item_key = action.split(':', maxsplit=2)[2]
+            item = await service.shop_item(item_key)
+            if item is None or item.price_stars is None:
+                await respond(f"{h('Telegram Stars')}\nТовар недоступен для оплаты Telegram Stars.", reply_markup=main_menu())
                 return
-            if action == 'act:card:to_collection':
-                await callback.message.answer(f"{h('📂 Коллекция')}\nКарта уже добавлена в коллекцию автоматически.", reply_markup=main_menu())
+            await session.commit()
+            await callback.message.answer_invoice(
+                title=item.title[:32],
+                description=(item.description or item.title)[:255],
+                payload=f"xtr_shop:{item.key}",
+                currency='XTR',
+                provider_token='',
+                prices=[LabeledPrice(label=item.title[:32], amount=int(item.price_stars))],
+                start_parameter=f"xtr-{item.key}",
+            )
+            return
+        if action.startswith('act:buy:'):
+            parts = action.split(':')
+            if len(parts) == 4:
+                _, _, item_key, currency = parts
+                ok, resp = await service.buy_shop_item(callback.from_user.id, item_key, currency)
+                await respond(f"{h('🛒 Покупка')}\n{resp}", reply_markup=main_menu())
                 return
-            if action.startswith('act:buy_xtr:'):
-                item_key = action.split(':', maxsplit=2)[2]
-                item = await service.shop_item(item_key)
-                if item is None or item.price_stars is None:
-                    await callback.message.answer(f"{h('Telegram Stars')}\nТовар недоступен для оплаты Telegram Stars.", reply_markup=main_menu())
-                    return
-                await callback.message.answer_invoice(
-                    title=item.title[:32],
-                    description=(item.description or item.title)[:255],
-                    payload=f"xtr_shop:{item.key}",
-                    currency='XTR',
-                    provider_token='',
-                    prices=[LabeledPrice(label=item.title[:32], amount=int(item.price_stars))],
-                    start_parameter=f"xtr-{item.key}",
-                )
+        if action.startswith('act:chest:open:'):
+            chest_key = action.split(':', maxsplit=3)[3]
+            result = await service.chest_open(callback.from_user.id, chest_key)
+            if not result.get('ok'):
+                await respond(f"{h('📦 Сундук')}\n{result.get('error', 'Ошибка')}", reply_markup=main_menu())
                 return
-            if action.startswith('act:buy:'):
-                parts = action.split(':')
-                if len(parts) == 4:
-                    _, _, item_key, currency = parts
-                    ok, resp = await service.buy_shop_item(callback.from_user.id, item_key, currency)
-                    await callback.message.answer(f"{h('🛒 Покупка')}\n{resp}", reply_markup=main_menu())
-                    return
-            if action.startswith('act:chest:open:'):
-                chest_key = action.split(':', maxsplit=3)[3]
-                result = await service.chest_open(callback.from_user.id, chest_key)
-                if not result.get('ok'):
-                    await callback.message.answer(f"{h('📦 Сундук')}\n{result.get('error', 'Ошибка')}", reply_markup=main_menu())
-                    return
-                await service.inc_task_counter(callback.from_user.id, 'open_chest', 1)
-                drops = result['drops']
-                lines = [h(f"{result['chest']['emoji']} Открытие сундука"), f"Сундук: {result['chest']['title']}"]
-                total_points = 0
-                total_coins = 0
-                for d in drops:
-                    lines.append(f"• {d['rarity']} — {d['title']} (+{d['points']}✨ +{d['coins']}🪙)")
-                    total_points += int(d['points'])
-                    total_coins += int(d['coins'])
-                lines.append(f"\nР\xa0\x98РЎвЂљР\xa0С•Р\xa0С–Р\xa0С•: +{total_points}✨ +{total_coins}🪙")
-                await callback.message.answer('\n'.join(lines), reply_markup=main_menu())
+            await service.inc_task_counter(callback.from_user.id, 'open_chest', 1)
+            drops = result['drops']
+            lines = [h(f"{result['chest']['emoji']} Открытие сундука"), f"Сундук: {result['chest']['title']}"]
+            total_points = 0
+            total_coins = 0
+            for d in drops:
+                lines.append(f"• {d['rarity']} — {d['title']} (+{d['points']}✨ +{d['coins']}🪙)")
+                total_points += int(d['points'])
+                total_coins += int(d['coins'])
+            lines.append(f"\nР\xa0\x98РЎвЂљР\xa0С•Р\xa0С–Р\xa0С•: +{total_points}✨ +{total_coins}🪙")
+            await respond('\n'.join(lines), reply_markup=main_menu())
+            return
+        if action.startswith('act:task:claim:'):
+            task_key = action.split(':', maxsplit=3)[3]
+            ok, resp = await service.claim_task_reward(callback.from_user.id, task_key)
+            await respond(f"{h('📜 Задания')}\n{resp}", reply_markup=main_menu())
+            return
+        if action.startswith('act:bonus:open:'):
+            task_key = action.split(':', maxsplit=3)[3]
+            task = await session.get(BcBonusTask, task_key)
+            if task is None or not task.is_active:
+                await respond(f"{h('🎁 Бонус')}\nЗадание не найдено.", reply_markup=main_menu())
                 return
-            if action.startswith('act:task:claim:'):
-                task_key = action.split(':', maxsplit=3)[3]
-                ok, resp = await service.claim_task_reward(callback.from_user.id, task_key)
-                await callback.message.answer(f"{h('📜 Задания')}\n{resp}", reply_markup=main_menu())
+            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+            rows = []
+            task_url = await service.resolve_bonus_url(task)
+            if task_url:
+                rows.append([InlineKeyboardButton(text=f"{task.emoji} Открыть ссылку", url=task_url)])
+            rows.append([InlineKeyboardButton(text='✅ Отметить выполненным', callback_data=f"act:bonus:mark:{task.key}")])
+            rows.append([InlineKeyboardButton(text='🔙 Назад', callback_data='nav:bonus')])
+            kb = InlineKeyboardMarkup(inline_keyboard=rows)
+            await respond(f"{h('🎁 Задание')}\n{task.description}", reply_markup=kb)
+            return
+        if action.startswith('act:bonus:mark:'):
+            task_key = action.split(':', maxsplit=3)[3]
+            ok, resp = await service.verify_and_mark_bonus_task(callback.bot, callback.from_user.id, task_key)
+            await respond(f"{h('?? ?????')}\n{resp}", reply_markup=main_menu())
+            return
+        if action == 'act:bonus:check':
+            ok, resp = await service.bonus_claim_if_ready(callback.from_user.id)
+            await respond(f"{h('🎁 Бонус')}\n{resp}", reply_markup=main_menu())
+            return
+        if action.startswith('act:rp:do:'):
+            action_key = action.split(':', maxsplit=3)[3]
+            target_id = None
+            if callback.message.reply_to_message and callback.message.reply_to_message.from_user:
+                target_id = callback.message.reply_to_message.from_user.id
+            result = await service.perform_rp_action_payload(
+                callback.from_user.id,
+                action_key,
+                target_id,
+                callback.message.chat.type if callback.message.chat else None,
+                callback.message.chat.id if callback.message.chat else None,
+                callback.message.message_id,
+            )
+            if result.get('need_target'):
+                await service.set_input_state(callback.from_user.id, 'rp_target_wait', {'action_key': action_key})
+                await respond(f"{h('🎭 RP')}\n{result['message']}", reply_markup=main_menu())
                 return
-            if action.startswith('act:bonus:open:'):
-                task_key = action.split(':', maxsplit=3)[3]
-                task = await session.get(BcBonusTask, task_key)
-                if task is None or not task.is_active:
-                    await callback.message.answer(f"{h('🎁 Бонус')}\nЗадание не найдено.", reply_markup=main_menu())
-                    return
-                from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-                rows = []
-                task_url = await service.resolve_bonus_url(task)
-                if task_url:
-                    rows.append([InlineKeyboardButton(text=f"{task.emoji} Открыть ссылку", url=task_url)])
-                rows.append([InlineKeyboardButton(text='✅ Отметить выполненным', callback_data=f"act:bonus:mark:{task.key}")])
-                rows.append([InlineKeyboardButton(text='🔙 Назад', callback_data='nav:bonus')])
-                kb = InlineKeyboardMarkup(inline_keyboard=rows)
-                await callback.message.answer(f"{h('🎁 Задание')}\n{task.description}", reply_markup=kb)
+            if not result.get('ok'):
+                await respond(f"{h('🎭 RP')}\n{result['message']}", reply_markup=main_menu())
                 return
-            if action.startswith('act:bonus:mark:'):
-                task_key = action.split(':', maxsplit=3)[3]
-                ok, resp = await service.verify_and_mark_bonus_task(callback.bot, callback.from_user.id, task_key)
-                await callback.message.answer(f"{h('?? ?????')}\n{resp}", reply_markup=main_menu())
+            await session.commit()
+            await send_rp_result(callback.message, f"{h('🎭 RP')}\n{result['text']}", result.get('media'))
+            return
+        if action.startswith('act:game:play:'):
+            _, _, _, game_key, stake = action.split(':')
+            ok, resp = await service.game_play(callback.from_user.id, game_key, int(stake))
+            await respond(f"{h('🎲 Игры')}\n{resp}", reply_markup=main_menu())
+            return
+        if action == 'act:market:sell:start':
+            await service.set_input_state(callback.from_user.id, 'market_sell_wait', {})
+            await respond(f"{h('💱 Маркет')}\nОтправьте строку в формате:\n`instance_id|coins_or_stars|price`\nПример: `15|coins|1200`", parse_mode='Markdown', reply_markup=main_menu())
+            return
+        if action == 'act:market:search:start':
+            await respond(f"{h('💱 Маркет')}\nПоиск и фильтры будут расширены отдельно. Пока используйте разделы покупки, лимиток и истории.", reply_markup=ik_market_menu())
+            return
+        if action.startswith('act:market:buy:'):
+            lot_id = int(action.split(':')[3])
+            ok, resp = await service.market_buy_lot(callback.from_user.id, lot_id)
+            await respond(f"{h('💱 Маркет')}\n{resp}", reply_markup=main_menu())
+            return
+        if action.startswith('act:market:cancel:'):
+            lot_id = int(action.split(':')[3])
+            ok, resp = await service.market_cancel_lot(callback.from_user.id, lot_id)
+            await respond(f"{h('💱 Маркет')}\n{resp}", reply_markup=main_menu())
+            return
+        if action == 'act:marriage:propose:start':
+            await service.set_input_state(callback.from_user.id, 'marriage_propose_wait', {})
+            await respond(f"{h('РЎР‚РЎСџРІР‚в„ўР\xa0РЉ Р\xa0\xa0РІР‚\x98Р\xa0РЋР\xa0вЂљР\xa0\xa0Р’В°Р\xa0\xa0РЎвЂќ')}\nОтправьте ID пользователя, которому хотите сделать предложение.", reply_markup=main_menu())
+            return
+        if action.startswith('act:marriage:accept:'):
+            proposal_id = int(action.split(':')[3])
+            ok, resp = await service.marriage_decide(callback.from_user.id, proposal_id, accept=True)
+            await respond(f"{h('РЎР‚РЎСџРІР‚в„ўР\xa0РЉ Р\xa0\xa0РІР‚\x98Р\xa0РЋР\xa0вЂљР\xa0\xa0Р’В°Р\xa0\xa0РЎвЂќ')}\n{resp}", reply_markup=main_menu())
+            return
+        if action.startswith('act:marriage:decline:'):
+            proposal_id = int(action.split(':')[3])
+            ok, resp = await service.marriage_decide(callback.from_user.id, proposal_id, accept=False)
+            await respond(f"{h('РЎР‚РЎСџРІР‚в„ўР\xa0РЉ Р\xa0\xa0РІР‚\x98Р\xa0РЋР\xa0вЂљР\xa0\xa0Р’В°Р\xa0\xa0РЎвЂќ')}\n{resp}", reply_markup=main_menu())
+            return
+        if action == 'act:quote:last_card':
+            state = await session.get(BcUserState, callback.from_user.id)
+            if state is None or state.last_card_id is None:
+                await respond(f"{h('💬 Цитата')}\nСначала получите карту.", reply_markup=main_menu())
                 return
-            if action == 'act:bonus:check':
-                ok, resp = await service.bonus_claim_if_ready(callback.from_user.id)
-                await callback.message.answer(f"{h('🎁 Бонус')}\n{resp}", reply_markup=main_menu())
+            card = await session.get(BcCard, state.last_card_id)
+            if card is None:
+                await respond(f"{h('💬 Цитата')}\nКарта не найдена.", reply_markup=main_menu())
                 return
-            if action.startswith('act:rp:do:'):
-                action_key = action.split(':', maxsplit=3)[3]
-                target_id = None
-                if callback.message.reply_to_message and callback.message.reply_to_message.from_user:
-                    target_id = callback.message.reply_to_message.from_user.id
-                result = await service.perform_rp_action_payload(
-                    callback.from_user.id,
-                    action_key,
-                    target_id,
-                    callback.message.chat.type if callback.message.chat else None,
-                    callback.message.chat.id if callback.message.chat else None,
-                    callback.message.message_id,
-                )
-                if result.get('need_target'):
-                    await service.set_input_state(callback.from_user.id, 'rp_target_wait', {'action_key': action_key})
-                    await callback.message.answer(f"{h('🎭 RP')}\n{result['message']}", reply_markup=main_menu())
-                    return
-                if not result.get('ok'):
-                    await callback.message.answer(f"{h('🎭 RP')}\n{result['message']}", reply_markup=main_menu())
-                    return
-                await send_rp_result(callback.message, f"{h('🎭 RP')}\n{result['text']}", result.get('media'))
+            await respond(f"{h('💬 Цитата')}\nВ«{card.title}В»\n{card.description}", reply_markup=main_menu())
+            return
+        if action == 'act:quote:custom':
+            await service.set_input_state(callback.from_user.id, 'quote_wait', {})
+            await respond(f"{h('💬 Цитата')}\nОтправьте текст цитаты одним сообщением.", reply_markup=main_menu())
+            return
+        if action == 'act:sticker:last_card':
+            await service.set_input_state(callback.from_user.id, 'sticker_last_wait', {})
+            await respond(f"{h('🎨 Стикер')}\nОтправьте подпись для стикера по последней карте.", reply_markup=main_menu())
+            return
+        if action == 'act:sticker:template':
+            await service.set_input_state(callback.from_user.id, 'sticker_template_wait', {})
+            await respond(f"{h('🎨 Стикер')}\nОтправьте текст для шаблонного стикера.", reply_markup=main_menu())
+            return
+        if action.startswith('act:settings:toggle:'):
+            key = action.split(':')[3]
+            ok, resp = await service.toggle_setting(callback.from_user.id, key)
+            await respond(f"{h('⚙️ Настройки')}\n{resp}", reply_markup=main_menu())
+            return
+        if action.startswith('act:settings:cycle:'):
+            key = action.split(':')[3]
+            ok, resp = await service.cycle_setting(callback.from_user.id, key)
+            await respond(f"{h('⚙️ Настройки')}\n{resp}", reply_markup=main_menu())
+            return
+        if action == 'act:admin:card:create':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
                 return
-            if action.startswith('act:game:play:'):
-                _, _, _, game_key, stake = action.split(':')
-                ok, resp = await service.game_play(callback.from_user.id, game_key, int(stake))
-                await callback.message.answer(f"{h('🎲 Игры')}\n{resp}", reply_markup=main_menu())
+            await service.set_input_state(callback.from_user.id, 'admin_card_wizard', {'mode': 'create', 'step': 'key', 'data': {}})
+            rarity_hint = await card_rarity_hint(session)
+            await respond(
+                f"{card_wizard_prompt('create', 'key', {})}\n\n{rarity_hint}\n\nДля отмены нажмите кнопку ниже.",
+                parse_mode='Markdown',
+                reply_markup=await admin_card_wizard_markup(session, 'key'),
+            )
+            return
+        if action.startswith('act:admin:card:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
                 return
-            if action == 'act:market:sell:start':
-                await service.set_input_state(callback.from_user.id, 'market_sell_wait', {})
-                await callback.message.answer(f"{h('💱 Маркет')}\nОтправьте строку в формате:\n`instance_id|coins_or_stars|price`\nПример: `15|coins|1200`", parse_mode='Markdown', reply_markup=main_menu())
+            card_id = int(action.split(':', maxsplit=4)[4])
+            card = await session.get(BcCard, card_id)
+            if card is None:
+                await respond('Карточка не найдена.', reply_markup=main_menu())
                 return
-            if action == 'act:market:search:start':
-                await callback.message.answer(f"{h('💱 Маркет')}\nПоиск и фильтры будут расширены отдельно. Пока используйте разделы покупки, лимиток и истории.", reply_markup=ik_market_menu())
+            data = {
+                'title': card.title,
+                'description': card.description,
+                'rarity_key': card.rarity_key,
+                'series': card.series,
+                'points': card.base_points,
+                'coins': card.base_coins,
+                'drop_weight': card.drop_weight,
+                'is_limited': int(card.is_limited),
+                'is_sellable': int(card.is_sellable),
+                'is_active': int(card.is_active),
+                'sort': card.sort,
+                'photo': card.image_file_id or '',
+            }
+            await service.set_input_state(callback.from_user.id, 'admin_card_wizard', {'mode': 'edit', 'id': card_id, 'step': 'title', 'data': data})
+            await respond(
+                f"{h('🃏 Редактор карточки')}\nПошаговое редактирование начато.\nНа любом текстовом шаге отправьте `-`, чтобы оставить текущее значение.\n\n{card_wizard_prompt('edit', 'title', data)}",
+                parse_mode='Markdown',
+                reply_markup=await admin_card_wizard_markup(session, 'title'),
+            )
+            return
+        if action.startswith('act:admin:card:wizard:value:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
                 return
-            if action.startswith('act:market:buy:'):
-                lot_id = int(action.split(':')[3])
-                ok, resp = await service.market_buy_lot(callback.from_user.id, lot_id)
-                await callback.message.answer(f"{h('💱 Маркет')}\n{resp}", reply_markup=main_menu())
-                return
-            if action.startswith('act:market:cancel:'):
-                lot_id = int(action.split(':')[3])
-                ok, resp = await service.market_cancel_lot(callback.from_user.id, lot_id)
-                await callback.message.answer(f"{h('💱 Маркет')}\n{resp}", reply_markup=main_menu())
-                return
-            if action == 'act:marriage:propose:start':
-                await service.set_input_state(callback.from_user.id, 'marriage_propose_wait', {})
-                await callback.message.answer(f"{h('РЎР‚РЎСџРІР‚в„ўР\xa0РЉ Р\xa0\xa0РІР‚\x98Р\xa0РЋР\xa0вЂљР\xa0\xa0Р’В°Р\xa0\xa0РЎвЂќ')}\nОтправьте ID пользователя, которому хотите сделать предложение.", reply_markup=main_menu())
-                return
-            if action.startswith('act:marriage:accept:'):
-                proposal_id = int(action.split(':')[3])
-                ok, resp = await service.marriage_decide(callback.from_user.id, proposal_id, accept=True)
-                await callback.message.answer(f"{h('РЎР‚РЎСџРІР‚в„ўР\xa0РЉ Р\xa0\xa0РІР‚\x98Р\xa0РЋР\xa0вЂљР\xa0\xa0Р’В°Р\xa0\xa0РЎвЂќ')}\n{resp}", reply_markup=main_menu())
-                return
-            if action.startswith('act:marriage:decline:'):
-                proposal_id = int(action.split(':')[3])
-                ok, resp = await service.marriage_decide(callback.from_user.id, proposal_id, accept=False)
-                await callback.message.answer(f"{h('РЎР‚РЎСџРІР‚в„ўР\xa0РЉ Р\xa0\xa0РІР‚\x98Р\xa0РЋР\xa0вЂљР\xa0\xa0Р’В°Р\xa0\xa0РЎвЂќ')}\n{resp}", reply_markup=main_menu())
-                return
-            if action == 'act:quote:last_card':
-                state = await session.get(BcUserState, callback.from_user.id)
-                if state is None or state.last_card_id is None:
-                    await callback.message.answer(f"{h('💬 Цитата')}\nСначала получите карту.", reply_markup=main_menu())
-                    return
-                card = await session.get(BcCard, state.last_card_id)
-                if card is None:
-                    await callback.message.answer(f"{h('💬 Цитата')}\nКарта не найдена.", reply_markup=main_menu())
-                    return
-                await callback.message.answer(f"{h('💬 Цитата')}\nВ«{card.title}В»\n{card.description}", reply_markup=main_menu())
-                return
-            if action == 'act:quote:custom':
-                await service.set_input_state(callback.from_user.id, 'quote_wait', {})
-                await callback.message.answer(f"{h('💬 Цитата')}\nОтправьте текст цитаты одним сообщением.", reply_markup=main_menu())
-                return
-            if action == 'act:sticker:last_card':
-                await service.set_input_state(callback.from_user.id, 'sticker_last_wait', {})
-                await callback.message.answer(f"{h('🎨 Стикер')}\nОтправьте подпись для стикера по последней карте.", reply_markup=main_menu())
-                return
-            if action == 'act:sticker:template':
-                await service.set_input_state(callback.from_user.id, 'sticker_template_wait', {})
-                await callback.message.answer(f"{h('🎨 Стикер')}\nОтправьте текст для шаблонного стикера.", reply_markup=main_menu())
-                return
-            if action.startswith('act:settings:toggle:'):
-                key = action.split(':')[3]
-                ok, resp = await service.toggle_setting(callback.from_user.id, key)
-                await callback.message.answer(f"{h('⚙️ Настройки')}\n{resp}", reply_markup=main_menu())
-                return
-            if action.startswith('act:settings:cycle:'):
-                key = action.split(':')[3]
-                ok, resp = await service.cycle_setting(callback.from_user.id, key)
-                await callback.message.answer(f"{h('⚙️ Настройки')}\n{resp}", reply_markup=main_menu())
-                return
-            if action == 'act:admin:card:create':
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                await service.set_input_state(callback.from_user.id, 'admin_card_wizard', {'mode': 'create', 'step': 'key', 'data': {}})
-                rarity_hint = await card_rarity_hint(session)
-                await callback.message.answer(
-                    f"{card_wizard_prompt('create', 'key', {})}\n\n{rarity_hint}\n\nДля отмены нажмите кнопку ниже.",
-                    parse_mode='Markdown',
-                    reply_markup=await admin_card_wizard_markup(session, 'key'),
-                )
-                return
-            if action.startswith('act:admin:card:edit:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                card_id = int(action.split(':', maxsplit=4)[4])
-                card = await session.get(BcCard, card_id)
-                if card is None:
-                    await callback.message.answer('Карточка не найдена.', reply_markup=main_menu())
-                    return
-                data = {
-                    'title': card.title,
-                    'description': card.description,
-                    'rarity_key': card.rarity_key,
-                    'series': card.series,
-                    'points': card.base_points,
-                    'coins': card.base_coins,
-                    'drop_weight': card.drop_weight,
-                    'is_limited': int(card.is_limited),
-                    'is_sellable': int(card.is_sellable),
-                    'is_active': int(card.is_active),
-                    'sort': card.sort,
-                    'photo': card.image_file_id or '',
-                }
-                await service.set_input_state(callback.from_user.id, 'admin_card_wizard', {'mode': 'edit', 'id': card_id, 'step': 'title', 'data': data})
-                await callback.message.answer(
-                    f"{h('🃏 Редактор карточки')}\nПошаговое редактирование начато.\nНа любом текстовом шаге отправьте `-`, чтобы оставить текущее значение.\n\n{card_wizard_prompt('edit', 'title', data)}",
-                    parse_mode='Markdown',
-                    reply_markup=await admin_card_wizard_markup(session, 'title'),
-                )
-                return
-            if action.startswith('act:admin:card:wizard:value:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                raw = action.split(':', maxsplit=5)[5]
-                result = await consume_admin_card_wizard_input(session, service, callback.from_user.id, raw)
-                preview_text = None
-                if result.get('done') and result.get('card_id'):
-                    card = await session.get(BcCard, int(result['card_id']))
-                    if card is not None:
-                        preview_text = (
-                            f"{h('?? ???????? ?????????')}\n"
-                            f"????????: {card.title}\n"
-                            f"????????: {card.rarity_key}\n"
-                            f"?????: {card.series}\n"
-                            f"????: {'??' if bool(card.image_file_id) else '???'}"
-                        )
-                await callback.message.answer(
-                    result['text'],
-                    parse_mode=result.get('parse_mode'),
-                    reply_markup=result.get('reply_markup') or main_menu(),
-                )
-                if preview_text:
-                    await callback.message.answer(preview_text, reply_markup=main_menu())
-                return
-            if action == 'act:admin:card:wizard:cancel':
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                await service.clear_input_state(callback.from_user.id)
-                await callback.message.answer(f"{h('🃏 Конструктор карточки')}\nСоздание или редактирование карточки отменено.", reply_markup=main_menu())
-                return
-            if action == 'act:admin:card:wizard:skip_photo':
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                state = await service.get_input_state(callback.from_user.id)
-                if state is None or state.state != 'admin_card_wizard':
-                    await callback.message.answer(f"{h('?? ??????????? ????????')}\n??? ????????? ???? ? ????.", reply_markup=main_menu())
-                    return
-                payload = dict(state.payload or {})
-                if str(payload.get('step') or '') != 'photo':
-                    await callback.message.answer(f"{h('?? ??????????? ????????')}\n??????? ???????? ?????? ?? ???? ? ????.", reply_markup=main_menu())
-                    return
-                result = await consume_admin_card_wizard_input(session, service, callback.from_user.id, '-')
-                preview_text = None
-                if result.get('done') and result.get('card_id'):
-                    card = await session.get(BcCard, int(result['card_id']))
-                    if card is not None:
-                        preview_text = (
-                            f"{h('?? ???????? ?????????')}\n"
-                            f"????????: {card.title}\n"
-                            f"????????: {card.rarity_key}\n"
-                            f"?????: {card.series}\n"
-                            f"????: {'??' if bool(card.image_file_id) else '???'}"
-                        )
-                await callback.message.answer(
-                    result['text'],
-                    parse_mode=result.get('parse_mode'),
-                    reply_markup=result.get('reply_markup') or main_menu(),
-                )
-                if preview_text:
-                    await callback.message.answer(preview_text, reply_markup=main_menu())
-                return
-            if action.startswith('act:admin:card:duplicate:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                card_id = int(action.split(':', maxsplit=4)[4])
-                source_card = await session.get(BcCard, card_id)
-                if source_card is None:
-                    await callback.message.answer('Карточка не найдена.', reply_markup=main_menu())
-                    return
-                base_key = f"{source_card.key}_copy"
-                new_key = base_key
-                suffix = 2
-                while await session.scalar(select(BcCard.id).where(BcCard.key == new_key)) is not None:
-                    new_key = f"{base_key}_{suffix}"
-                    suffix += 1
-                clone = BcCard(
-                    key=new_key,
-                    title=f"{source_card.title} COPY",
-                    description=source_card.description,
-                    rarity_key=source_card.rarity_key,
-                    series=source_card.series,
-                    tags=list(source_card.tags or []),
-                    base_points=source_card.base_points,
-                    base_coins=source_card.base_coins,
-                    drop_weight=source_card.drop_weight,
-                    is_limited=source_card.is_limited,
-                    limited_series_id=source_card.limited_series_id,
-                    event_id=source_card.event_id,
-                    image_file_id=source_card.image_file_id,
-                    image_url=source_card.image_url,
-                    media_id=source_card.media_id,
-                    is_sellable=source_card.is_sellable,
-                    is_active=False,
-                    sort=source_card.sort + 1,
-                    meta=dict(source_card.meta or {}),
-                )
-                session.add(clone)
-                await session.flush()
-                await callback.message.answer(f"{h('🃏 Карточка')}\nСоздан дубликат: `{clone.key}`", parse_mode='Markdown', reply_markup=main_menu())
-                await screen_admin_card(callback.message, clone.id)
-                return
-            if action.startswith('act:admin:card:photo:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                card_id = int(action.split(':', maxsplit=4)[4])
-                await service.set_input_state(callback.from_user.id, 'admin_card_photo', {'id': card_id})
-                await callback.message.answer(f"{h('🖼 Фото карточки')}\nОтправьте новое фото сообщением.", reply_markup=main_menu())
-                return
-            if action.startswith('act:admin:card:toggle_active:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                card_id = int(action.split(':', maxsplit=5)[4])
-                card = await session.get(BcCard, card_id)
-                if card is None:
-                    await callback.message.answer('Карточка не найдена.', reply_markup=main_menu())
-                    return
-                card.is_active = not card.is_active
-                await callback.message.answer('Статус активности карточки обновлён.', reply_markup=main_menu())
-                return
-            if action.startswith('act:admin:card:toggle_sell:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                card_id = int(action.split(':', maxsplit=5)[4])
-                card = await session.get(BcCard, card_id)
-                if card is None:
-                    await callback.message.answer('Карточка не найдена.', reply_markup=main_menu())
-                    return
-                card.is_sellable = not card.is_sellable
-                await callback.message.answer('Статус продажи карточки обновлён.', reply_markup=main_menu())
-                return
-            if action.startswith('act:admin:card:delete:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                card_id = int(action.split(':', maxsplit=4)[4])
-                card = await session.get(BcCard, card_id)
-                if card is None:
-                    await callback.message.answer('Карточка не найдена.', reply_markup=main_menu())
-                    return
-                await session.delete(card)
-                await callback.message.answer('Карточка удалена.', reply_markup=main_menu())
-                return
-            if action == 'act:admin:rp_category:create':
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                await service.set_input_state(callback.from_user.id, 'admin_rp_category_form', {'mode': 'create'})
-                await callback.message.answer(
-                    f"{h('🎭 Категория RP')}\nОтправьте одной строкой:\n`key|Название|emoji|sort|active(0/1)`\n\nПример:\n`romance|Романтические|💘|20|1`",
-                    parse_mode='Markdown',
-                    reply_markup=main_menu(),
-                )
-                return
-            if action.startswith('act:admin:rp_category:edit:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                category_key = action.split(':', maxsplit=4)[4]
-                await service.set_input_state(callback.from_user.id, 'admin_rp_category_form', {'mode': 'edit', 'key': category_key})
-                await callback.message.answer(
-                    f"{h('🎭 Категория RP')}\nКлюч: `{category_key}`\nОтправьте строкой:\n`Название|emoji|sort|active(0/1)`",
-                    parse_mode='Markdown',
-                    reply_markup=main_menu(),
-                )
-                return
-            if action.startswith('act:admin:rp_category:delete:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                category_key = action.split(':', maxsplit=4)[4]
-                category = await session.get(BcRPCategory, category_key)
-                if category is None:
-                    await callback.message.answer('Категория не найдена.', reply_markup=main_menu())
-                    return
-                await session.delete(category)
-                await callback.message.answer('Категория RP удалена.', reply_markup=main_menu())
-                return
-            if action == 'act:admin:rp_action:create':
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                await service.set_input_state(callback.from_user.id, 'admin_rp_action_form', {'mode': 'create'})
-                await callback.message.answer(
-                    f"{h('🎭 RP-действие')}\nОтправьте одной строкой:\n`key|category_key|Название|emoji|requires_target(0/1)|cooldown|coins|stars|points|media_id|private(0/1)|group(0/1)|sort|active(0/1)|template1;;template2`\n\nПример:\n`hug|friendly|Обнять|🤝|1|30|0|0|1||1|1|10|1|{{actor}} обнял {{target}};;{{actor}} крепко обнял {{target}}`",
-                    parse_mode='Markdown',
-                    reply_markup=main_menu(),
-                )
-                return
-            if action.startswith('act:admin:rp_action:edit:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                action_key = action.split(':', maxsplit=4)[4]
-                await service.set_input_state(callback.from_user.id, 'admin_rp_action_form', {'mode': 'edit', 'key': action_key})
-                await callback.message.answer(
-                    f"{h('🎭 RP-действие')}\nКлюч: `{action_key}`\nОтправьте строкой:\n`category_key|Название|emoji|requires_target(0/1)|cooldown|coins|stars|points|media_id|private(0/1)|group(0/1)|sort|active(0/1)|template1;;template2`",
-                    parse_mode='Markdown',
-                    reply_markup=main_menu(),
-                )
-                return
-            if action.startswith('act:admin:rp_action:delete:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                action_key = action.split(':', maxsplit=4)[4]
-                rp_action = await session.get(BcRPAction, action_key)
-                if rp_action is None:
-                    await callback.message.answer('RP-действие не найдено.', reply_markup=main_menu())
-                    return
-                await session.delete(rp_action)
-                await callback.message.answer('RP-действие удалено.', reply_markup=main_menu())
-                return
-            if action == 'act:admin:rarity:create':
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                await service.set_input_state(callback.from_user.id, 'admin_rarity_form', {'mode': 'create'})
-                await callback.message.answer(f"{h('💎 Добавить редкость')}\nОтправьте одной строкой:\n`key|Название|эмодзи|шанс|цвет|points_mult|coins_mult|drop_mode|in_chests(0/1)|in_shop(0/1)`\nПример:\n`ultra|Ультра|🔶|0.2|#FFAA00|4.2|2.9|normal|1|1`", parse_mode='Markdown', reply_markup=main_menu())
-                return
-            if action.startswith('act:admin:rarity:edit:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                rarity_key = action.split(':', maxsplit=4)[4]
-                await service.set_input_state(callback.from_user.id, 'admin_rarity_form', {'mode': 'edit', 'key': rarity_key})
-                await callback.message.answer(f"{h('💎 Редактировать редкость')}\nКлюч: `{rarity_key}`\nОтправьте строкой:\n`Название|эмодзи|шанс|цвет|points_mult|coins_mult|drop_mode|in_chests(0/1)|in_shop(0/1)|active(0/1)`", parse_mode='Markdown', reply_markup=main_menu())
-                return
-            if action.startswith('act:admin:rarity:delete:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                rarity_key = action.split(':', maxsplit=4)[4]
-                r = await session.get(BcRarity, rarity_key)
-                if r is None:
-                    await callback.message.answer('Редкость не найдена.', reply_markup=main_menu())
-                    return
-                await session.delete(r)
-                await callback.message.answer('Редкость удалена.', reply_markup=main_menu())
-                return
-            if action == 'act:admin:booster:create':
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                await service.set_input_state(callback.from_user.id, 'admin_booster_form', {'mode': 'create'})
-                await callback.message.answer(f"{h('⚡ Добавить бустер')}\nОтправьте одной строкой:\n`key|Название|эмодзи|effect_type|power|price_coins|price_stars|duration_seconds|max_stack|available(0/1)`\nПример:\n`luck2|Удача+|🍀|luck|0.5|600||0|10|1`", parse_mode='Markdown', reply_markup=main_menu())
-                return
-            if action.startswith('act:admin:booster:edit:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                booster_key = action.split(':', maxsplit=4)[4]
-                await service.set_input_state(callback.from_user.id, 'admin_booster_form', {'mode': 'edit', 'key': booster_key})
-                await callback.message.answer(f"{h('⚡ Редактировать бустер')}\nКлюч: `{booster_key}`\nОтправьте строкой:\n`Название|эмодзи|effect_type|power|price_coins|price_stars|duration_seconds|max_stack|available(0/1)`", parse_mode='Markdown', reply_markup=main_menu())
-                return
-            if action.startswith('act:admin:booster:delete:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                booster_key = action.split(':', maxsplit=4)[4]
-                b = await session.get(BcBooster, booster_key)
-                if b is None:
-                    await callback.message.answer('Бустер не найден.', reply_markup=main_menu())
-                    return
-                await session.delete(b)
-                await callback.message.answer('Бустер удалён.', reply_markup=main_menu())
-                return
-            if action == 'act:admin:chest:create':
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                await service.set_input_state(callback.from_user.id, 'admin_chest_form', {'mode': 'create'})
-                await callback.message.answer(f"{h('📦 Добавить сундук')}\nОтправьте одной строкой:\n`key|Название|эмодзи|описание|price_coins|price_stars|open_count|drops`\nГде `drops` — список `rarity=weight,rarity=weight`.\nПример:\n`mini|Мини|📦|Быстрый сундук|150||1|common=90,rare=9,epic=1`", parse_mode='Markdown', reply_markup=main_menu())
-                return
-            if action.startswith('act:admin:chest:edit:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                chest_key = action.split(':', maxsplit=4)[4]
-                await service.set_input_state(callback.from_user.id, 'admin_chest_form', {'mode': 'edit', 'key': chest_key})
-                await callback.message.answer(f"{h('📦 Редактировать сундук')}\nКлюч: `{chest_key}`\nОтправьте строкой:\n`Название|эмодзи|описание|price_coins|price_stars|open_count|active(0/1)`\nДроп-таблица редактируется отдельной кнопкой (будет добавлено).", parse_mode='Markdown', reply_markup=main_menu())
-                return
-            if action.startswith('act:admin:chest:delete:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                chest_key = action.split(':', maxsplit=4)[4]
-                c = await session.get(BcChest, chest_key)
-                if c is None:
-                    await callback.message.answer('Сундук не найден.', reply_markup=main_menu())
-                    return
-                await session.delete(c)
-                await callback.message.answer('Сундук удалён.', reply_markup=main_menu())
-                return
-            if action == 'act:admin:user:manage:start':
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                await service.set_input_state(callback.from_user.id, 'admin_user_manage_form', {})
-                await callback.message.answer(
-                    f"{h('👥 Управление пользователем')}\nОтправьте одной строкой:\n`user_id|field|value`\n\nПоля:\n`coins`, `stars`, `points`, `level`, `exp`, `premium_days`, `nickname`, `cooldown:action`\n\nПримеры:\n`123456789|coins|5000`\n`123456789|cooldown:brawl_cards|0`",
-                    parse_mode='Markdown',
-                    reply_markup=main_menu(),
-                )
-                return
-            if action.startswith('act:admin:sys:edit:'):
-                if not is_admin_id(callback.from_user.id):
-                    await callback.message.answer('Access denied', reply_markup=main_menu())
-                    return
-                section = action.split(':', maxsplit=4)[4]
-                await service.set_input_state(callback.from_user.id, 'admin_system_form', {'section': section})
-                if section == 'cooldowns':
-                    prompt = (
-                        f"{h('⏱ Кулдауны')}\n"
-                        "Отправьте строкой:\n"
-                        "`key|seconds`\n\n"
-                        "Ключи:\n"
-                        "`brawl_cards`, `bonus`, `nick_change`, `dice`, `guess_rarity`, `coinflip`, `card_battle`, `slot`, `premium_game_reduction`"
+            raw = action.split(':', maxsplit=5)[5]
+            result = await consume_admin_card_wizard_input(session, service, callback.from_user.id, raw)
+            preview_text = None
+            if result.get('done') and result.get('card_id'):
+                card = await session.get(BcCard, int(result['card_id']))
+                if card is not None:
+                    preview_text = (
+                        f"{h('?? ???????? ?????????')}\n"
+                        f"????????: {card.title}\n"
+                        f"????????: {card.rarity_key}\n"
+                        f"?????: {card.series}\n"
+                        f"????: {'??' if bool(card.image_file_id) else '???'}"
                     )
-                elif section == 'rewards':
-                    prompt = (
-                        f"{h('🎁 Награды')}\n"
-                        "Отправьте строкой:\n"
-                        "`key|value`\n\n"
-                        "Ключи:\n"
-                        "`bonus_coins`, `bonus_stars`, `market_fee_percent`"
-                    )
-                else:
-                    prompt = (
-                        f"{h('🔗 Bonus-ссылки')}\n"
-                        "Отправьте строкой:\n"
-                        "`key|url`\n\n"
-                        "Ключи:\n"
-                        "`chat`, `subscribe`, `news`, `invite`, `partner`"
-                    )
-                await callback.message.answer(prompt, parse_mode='Markdown', reply_markup=main_menu())
+            await respond(
+                result['text'],
+                parse_mode=result.get('parse_mode'),
+                reply_markup=result.get('reply_markup') or main_menu(),
+            )
+            if preview_text:
+                await respond(preview_text, reply_markup=main_menu())
+            return
+        if action == 'act:admin:card:wizard:cancel':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
                 return
-    await callback.message.answer('Действие пока не реализовано.', reply_markup=main_menu())
+            await service.clear_input_state(callback.from_user.id)
+            await respond(f"{h('🃏 Конструктор карточки')}\nСоздание или редактирование карточки отменено.", reply_markup=main_menu())
+            return
+        if action == 'act:admin:card:wizard:skip_photo':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            state = await service.get_input_state(callback.from_user.id)
+            if state is None or state.state != 'admin_card_wizard':
+                await respond(f"{h('?? ??????????? ????????')}\n??? ????????? ???? ? ????.", reply_markup=main_menu())
+                return
+            payload = dict(state.payload or {})
+            if str(payload.get('step') or '') != 'photo':
+                await respond(f"{h('?? ??????????? ????????')}\n??????? ???????? ?????? ?? ???? ? ????.", reply_markup=main_menu())
+                return
+            result = await consume_admin_card_wizard_input(session, service, callback.from_user.id, '-')
+            preview_text = None
+            if result.get('done') and result.get('card_id'):
+                card = await session.get(BcCard, int(result['card_id']))
+                if card is not None:
+                    preview_text = (
+                        f"{h('?? ???????? ?????????')}\n"
+                        f"????????: {card.title}\n"
+                        f"????????: {card.rarity_key}\n"
+                        f"?????: {card.series}\n"
+                        f"????: {'??' if bool(card.image_file_id) else '???'}"
+                    )
+            await respond(
+                result['text'],
+                parse_mode=result.get('parse_mode'),
+                reply_markup=result.get('reply_markup') or main_menu(),
+            )
+            if preview_text:
+                await respond(preview_text, reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:card:duplicate:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            card_id = int(action.split(':', maxsplit=4)[4])
+            source_card = await session.get(BcCard, card_id)
+            if source_card is None:
+                await respond('Карточка не найдена.', reply_markup=main_menu())
+                return
+            base_key = f"{source_card.key}_copy"
+            new_key = base_key
+            suffix = 2
+            while await session.scalar(select(BcCard.id).where(BcCard.key == new_key)) is not None:
+                new_key = f"{base_key}_{suffix}"
+                suffix += 1
+            clone = BcCard(
+                key=new_key,
+                title=f"{source_card.title} COPY",
+                description=source_card.description,
+                rarity_key=source_card.rarity_key,
+                series=source_card.series,
+                tags=list(source_card.tags or []),
+                base_points=source_card.base_points,
+                base_coins=source_card.base_coins,
+                drop_weight=source_card.drop_weight,
+                is_limited=source_card.is_limited,
+                limited_series_id=source_card.limited_series_id,
+                event_id=source_card.event_id,
+                image_file_id=source_card.image_file_id,
+                image_url=source_card.image_url,
+                media_id=source_card.media_id,
+                is_sellable=source_card.is_sellable,
+                is_active=False,
+                sort=source_card.sort + 1,
+                meta=dict(source_card.meta or {}),
+            )
+            session.add(clone)
+            await session.flush()
+            await respond(f"{h('🃏 Карточка')}\nСоздан дубликат: `{clone.key}`", parse_mode='Markdown', reply_markup=main_menu())
+            await screen_admin_card(callback.message, clone.id)
+            return
+        if action.startswith('act:admin:card:photo:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            card_id = int(action.split(':', maxsplit=4)[4])
+            await service.set_input_state(callback.from_user.id, 'admin_card_photo', {'id': card_id})
+            await respond(f"{h('🖼 Фото карточки')}\nОтправьте новое фото сообщением.", reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:card:toggle_active:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            card_id = int(action.split(':', maxsplit=5)[4])
+            card = await session.get(BcCard, card_id)
+            if card is None:
+                await respond('Карточка не найдена.', reply_markup=main_menu())
+                return
+            card.is_active = not card.is_active
+            await respond('Статус активности карточки обновлён.', reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:card:toggle_sell:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            card_id = int(action.split(':', maxsplit=5)[4])
+            card = await session.get(BcCard, card_id)
+            if card is None:
+                await respond('Карточка не найдена.', reply_markup=main_menu())
+                return
+            card.is_sellable = not card.is_sellable
+            await respond('Статус продажи карточки обновлён.', reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:card:delete:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            card_id = int(action.split(':', maxsplit=4)[4])
+            card = await session.get(BcCard, card_id)
+            if card is None:
+                await respond('Карточка не найдена.', reply_markup=main_menu())
+                return
+            await session.delete(card)
+            await respond('Карточка удалена.', reply_markup=main_menu())
+            return
+        if action == 'act:admin:rp_category:create':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_rp_category_form', {'mode': 'create'})
+            await respond(
+                f"{h('🎭 Категория RP')}\nОтправьте одной строкой:\n`key|Название|emoji|sort|active(0/1)`\n\nПример:\n`romance|Романтические|💘|20|1`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:rp_category:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            category_key = action.split(':', maxsplit=4)[4]
+            await service.set_input_state(callback.from_user.id, 'admin_rp_category_form', {'mode': 'edit', 'key': category_key})
+            await respond(
+                f"{h('🎭 Категория RP')}\nКлюч: `{category_key}`\nОтправьте строкой:\n`Название|emoji|sort|active(0/1)`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:rp_category:delete:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            category_key = action.split(':', maxsplit=4)[4]
+            category = await session.get(BcRPCategory, category_key)
+            if category is None:
+                await respond('Категория не найдена.', reply_markup=main_menu())
+                return
+            await session.delete(category)
+            await respond('Категория RP удалена.', reply_markup=main_menu())
+            return
+        if action == 'act:admin:rp_action:create':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_rp_action_form', {'mode': 'create'})
+            await respond(
+                f"{h('🎭 RP-действие')}\nОтправьте одной строкой:\n`key|category_key|Название|emoji|requires_target(0/1)|cooldown|coins|stars|points|media_id|private(0/1)|group(0/1)|sort|active(0/1)|template1;;template2`\n\nПример:\n`hug|friendly|Обнять|🤝|1|30|0|0|1||1|1|10|1|{{actor}} обнял {{target}};;{{actor}} крепко обнял {{target}}`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:rp_action:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            action_key = action.split(':', maxsplit=4)[4]
+            await service.set_input_state(callback.from_user.id, 'admin_rp_action_form', {'mode': 'edit', 'key': action_key})
+            await respond(
+                f"{h('🎭 RP-действие')}\nКлюч: `{action_key}`\nОтправьте строкой:\n`category_key|Название|emoji|requires_target(0/1)|cooldown|coins|stars|points|media_id|private(0/1)|group(0/1)|sort|active(0/1)|template1;;template2`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:rp_action:delete:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            action_key = action.split(':', maxsplit=4)[4]
+            rp_action = await session.get(BcRPAction, action_key)
+            if rp_action is None:
+                await respond('RP-действие не найдено.', reply_markup=main_menu())
+                return
+            await session.delete(rp_action)
+            await respond('RP-действие удалено.', reply_markup=main_menu())
+            return
+        if action == 'act:admin:rarity:create':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_rarity_form', {'mode': 'create'})
+            await respond(f"{h('💎 Добавить редкость')}\nОтправьте одной строкой:\n`key|Название|эмодзи|шанс|цвет|points_mult|coins_mult|drop_mode|in_chests(0/1)|in_shop(0/1)`\nПример:\n`ultra|Ультра|🔶|0.2|#FFAA00|4.2|2.9|normal|1|1`", parse_mode='Markdown', reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:rarity:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            rarity_key = action.split(':', maxsplit=4)[4]
+            await service.set_input_state(callback.from_user.id, 'admin_rarity_form', {'mode': 'edit', 'key': rarity_key})
+            await respond(f"{h('💎 Редактировать редкость')}\nКлюч: `{rarity_key}`\nОтправьте строкой:\n`Название|эмодзи|шанс|цвет|points_mult|coins_mult|drop_mode|in_chests(0/1)|in_shop(0/1)|active(0/1)`", parse_mode='Markdown', reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:rarity:delete:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            rarity_key = action.split(':', maxsplit=4)[4]
+            r = await session.get(BcRarity, rarity_key)
+            if r is None:
+                await respond('Редкость не найдена.', reply_markup=main_menu())
+                return
+            await session.delete(r)
+            await respond('Редкость удалена.', reply_markup=main_menu())
+            return
+        if action == 'act:admin:booster:create':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_booster_form', {'mode': 'create'})
+            await respond(f"{h('⚡ Добавить бустер')}\nОтправьте одной строкой:\n`key|Название|эмодзи|effect_type|power|price_coins|price_stars|duration_seconds|max_stack|available(0/1)`\nПример:\n`luck2|Удача+|🍀|luck|0.5|600||0|10|1`", parse_mode='Markdown', reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:booster:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            booster_key = action.split(':', maxsplit=4)[4]
+            await service.set_input_state(callback.from_user.id, 'admin_booster_form', {'mode': 'edit', 'key': booster_key})
+            await respond(f"{h('⚡ Редактировать бустер')}\nКлюч: `{booster_key}`\nОтправьте строкой:\n`Название|эмодзи|effect_type|power|price_coins|price_stars|duration_seconds|max_stack|available(0/1)`", parse_mode='Markdown', reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:booster:delete:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            booster_key = action.split(':', maxsplit=4)[4]
+            b = await session.get(BcBooster, booster_key)
+            if b is None:
+                await respond('Бустер не найден.', reply_markup=main_menu())
+                return
+            await session.delete(b)
+            await respond('Бустер удалён.', reply_markup=main_menu())
+            return
+        if action == 'act:admin:chest:create':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_chest_form', {'mode': 'create'})
+            await respond(f"{h('📦 Добавить сундук')}\nОтправьте одной строкой:\n`key|Название|эмодзи|описание|price_coins|price_stars|open_count|drops`\nГде `drops` — список `rarity=weight,rarity=weight`.\nПример:\n`mini|Мини|📦|Быстрый сундук|150||1|common=90,rare=9,epic=1`", parse_mode='Markdown', reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:chest:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            chest_key = action.split(':', maxsplit=4)[4]
+            await service.set_input_state(callback.from_user.id, 'admin_chest_form', {'mode': 'edit', 'key': chest_key})
+            await respond(f"{h('📦 Редактировать сундук')}\nКлюч: `{chest_key}`\nОтправьте строкой:\n`Название|эмодзи|описание|price_coins|price_stars|open_count|active(0/1)`\nДроп-таблица редактируется отдельной кнопкой (будет добавлено).", parse_mode='Markdown', reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:chest:delete:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            chest_key = action.split(':', maxsplit=4)[4]
+            c = await session.get(BcChest, chest_key)
+            if c is None:
+                await respond('Сундук не найден.', reply_markup=main_menu())
+                return
+            await session.delete(c)
+            await respond('Сундук удалён.', reply_markup=main_menu())
+            return
+        if action == 'act:admin:user:manage:start':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_user_manage_form', {})
+            await respond(
+                f"{h('👥 Управление пользователем')}\nОтправьте одной строкой:\n`user_id|field|value`\n\nПоля:\n`coins`, `stars`, `points`, `level`, `exp`, `premium_days`, `nickname`, `cooldown:action`\n\nПримеры:\n`123456789|coins|5000`\n`123456789|cooldown:brawl_cards|0`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:sys:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Access denied', reply_markup=main_menu())
+                return
+            section = action.split(':', maxsplit=4)[4]
+            await service.set_input_state(callback.from_user.id, 'admin_system_form', {'section': section})
+            if section == 'cooldowns':
+                prompt = (
+                    f"{h('⏱ Кулдауны')}\n"
+                    "Отправьте строкой:\n"
+                    "`key|seconds`\n\n"
+                    "Ключи:\n"
+                    "`brawl_cards`, `bonus`, `nick_change`, `dice`, `guess_rarity`, `coinflip`, `card_battle`, `slot`, `premium_game_reduction`"
+                )
+            elif section == 'rewards':
+                prompt = (
+                    f"{h('🎁 Награды')}\n"
+                    "Отправьте строкой:\n"
+                    "`key|value`\n\n"
+                    "Ключи:\n"
+                    "`bonus_coins`, `bonus_stars`, `market_fee_percent`"
+                )
+            else:
+                prompt = (
+                    f"{h('🔗 Bonus-ссылки')}\n"
+                    "Отправьте строкой:\n"
+                    "`key|url`\n\n"
+                    "Ключи:\n"
+                    "`chat`, `subscribe`, `news`, `invite`, `partner`"
+                )
+            await respond(prompt, parse_mode='Markdown', reply_markup=main_menu())
+            return
+    await respond('Действие пока не реализовано.', reply_markup=main_menu())
 
 @router.pre_checkout_query()
 async def on_pre_checkout_query(pre_checkout_query: PreCheckoutQuery) -> None:
