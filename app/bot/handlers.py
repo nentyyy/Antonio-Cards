@@ -75,10 +75,14 @@ async def send_rp_result(message: Message, text: str, media: BcMedia | None=None
 
 async def send_start(message: Message) -> None:
     text = (
-        f"{h('👑 Antonio')}\n"
-        "Здесь ты собираешь карточки, усиливаешь аккаунт, выполняешь задания, получаешь бонусы, участвуешь в рейтингах, "
-        "взаимодействуешь с другими игроками, торгуешь карточками, открываешь сундуки и используешь RP-функции.\n\n"
-        "Нажимай кнопки меню снизу: почти все действия выполняются через них."
+        f"{h('\U0001f451 Antonio Cards')}\n"
+        "\u0421\u043e\u0431\u0438\u0440\u0430\u0439 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438, \u0443\u0441\u0438\u043b\u0438\u0432\u0430\u0439 \u043f\u0440\u043e\u0444\u0438\u043b\u044c, \u0432\u044b\u043f\u043e\u043b\u043d\u044f\u0439 \u0437\u0430\u0434\u0430\u043d\u0438\u044f, \u043f\u043e\u043b\u0443\u0447\u0430\u0439 \u0431\u043e\u043d\u0443\u0441\u044b, \u043e\u0442\u043a\u0440\u044b\u0432\u0430\u0439 \u0441\u0443\u043d\u0434\u0443\u043a\u0438, "
+        "\u0438\u0433\u0440\u0430\u0439 \u0432 \u043c\u0438\u043d\u0438-\u0438\u0433\u0440\u044b, \u0442\u043e\u0440\u0433\u0443\u0439 \u043d\u0430 \u043c\u0430\u0440\u043a\u0435\u0442\u0435 \u0438 \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0439 RP-\u0432\u0437\u0430\u0438\u043c\u043e\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f.\n\n"
+        "\u041e\u0441\u043d\u043e\u0432\u043d\u043e\u0439 \u0441\u0446\u0435\u043d\u0430\u0440\u0438\u0439 \u043f\u043e\u0441\u0442\u0440\u043e\u0435\u043d \u043d\u0430 \u043a\u043d\u043e\u043f\u043a\u0430\u0445. \u041e\u0442\u043a\u0440\u043e\u0439 \u043c\u0435\u043d\u044e \u0441\u043d\u0438\u0437\u0443 \u0438 \u043f\u0435\u0440\u0435\u0445\u043e\u0434\u0438 \u043f\u043e \u0440\u0430\u0437\u0434\u0435\u043b\u0430\u043c.\n\n"
+        "\u0411\u044b\u0441\u0442\u0440\u044b\u0435 \u043a\u043e\u043c\u0430\u043d\u0434\u044b:\n"
+        "/start \u2014 \u0433\u043b\u0430\u0432\u043d\u044b\u0439 \u044d\u043a\u0440\u0430\u043d\n"
+        "/help \u2014 \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0430 \u043f\u043e \u0431\u043e\u0442\u0443\n"
+        "/admin \u2014 \u0432\u0445\u043e\u0434 \u0432 \u0430\u0434\u043c\u0438\u043d-\u043f\u0430\u043d\u0435\u043b\u044c"
     )
     user_id = message.from_user.id if message.from_user else 0
     await message.answer(text, reply_markup=main_menu(is_admin=is_admin_id(user_id)))
@@ -102,7 +106,6 @@ async def screen_profile(message: Message) -> None:
             if prof is None:
                 prof = UserProfile(user_id=user.id)
                 session.add(prof)
-            state = await service.session.get(BcUserState, message.from_user.id)
         premium_active = bool(user.premium_until and user.premium_until > utcnow())
         premium_str = 'активен' if premium_active else 'не активен'
         premium_until = user.premium_until.isoformat(timespec='seconds') if user.premium_until else '—'
@@ -110,11 +113,41 @@ async def screen_profile(message: Message) -> None:
         limited_count = await session.scalar(select(func.count()).select_from(BcCardInstance).join(BcCard, BcCard.id == BcCardInstance.card_id).where(and_(BcCardInstance.user_id == user.id, BcCard.is_limited.is_(True))))
         marriage = await session.scalar(select(Marriage).where((Marriage.user1_id == user.id) | (Marriage.user2_id == user.id)).limit(1))
         family_str = 'в браке' if marriage else 'не в браке'
-        text = f"{h('👤 Профиль')}\n🆔 ID: `{user.id}`\n🏷 Ник: {display_name(user)}\n📅 Регистрация: {user.created_at.date().isoformat()}\n\n🏅 Уровень: {prof.level}\n📈 Опыт: {prof.exp}\n✨ Очки: {user.total_points}\n🪙 Монеты: {user.coins}\n⭐ Звёзды: {user.stars}\n\n🃏 Карточки: {user.cards_total} (legacy) | {cards_total or 0} (Antonio)\n🎟 Лимитки: {limited_count or 0}\n⚡ Активные бустеры: —\n💎 Premium: {premium_str} ({premium_until})\n\n🏆 Позиции в топах: —\n🎲 Игры: {prof.games_played} сыграно, {prof.games_won} побед\n💱 Маркет: {prof.market_sold} продано, {prof.market_bought} куплено\n💍 Семья: {family_str}\n✅ Заданий выполнено: {prof.tasks_done}\n⏱ Активность: {int(prof.activity_seconds // 3600)}ч"
+        text = (
+            f"{h('\U0001f464 \u041f\u0440\u043e\u0444\u0438\u043b\u044c')}\n"
+            f"\U0001f194 ID: `{user.id}`\n"
+            f"\U0001f3f7 \u041d\u0438\u043a: {display_name(user)}\n"
+            f"\U0001f4c5 \u0420\u0435\u0433\u0438\u0441\u0442\u0440\u0430\u0446\u0438\u044f: {user.created_at.date().isoformat()}\n\n"
+            f"\U0001f3c5 \u0423\u0440\u043e\u0432\u0435\u043d\u044c: {prof.level}\n"
+            f"\U0001f4c8 \u041e\u043f\u044b\u0442: {prof.exp}\n"
+            f"\u2728 \u041e\u0447\u043a\u0438: {user.total_points}\n"
+            f"\U0001fa99 \u041c\u043e\u043d\u0435\u0442\u044b: {user.coins}\n"
+            f"\u2b50 \u0417\u0432\u0451\u0437\u0434\u044b: {user.stars}\n\n"
+            f"\U0001f0cf \u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0438: {user.cards_total} (legacy) | {cards_total or 0} (Antonio)\n"
+            f"\U0001f39f \u041b\u0438\u043c\u0438\u0442\u043a\u0438: {limited_count or 0}\n"
+            f"\u26a1 \u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0435 \u0431\u0443\u0441\u0442\u0435\u0440\u044b: \u2014\n"
+            f"\U0001f48e Premium: {premium_str} ({premium_until})\n\n"
+            f"\U0001f3c6 \u041f\u043e\u0437\u0438\u0446\u0438\u0438 \u0432 \u0442\u043e\u043f\u0430\u0445: \u2014\n"
+            f"\U0001f3b2 \u0418\u0433\u0440\u044b: {prof.games_played} \u0441\u044b\u0433\u0440\u0430\u043d\u043e, {prof.games_won} \u043f\u043e\u0431\u0435\u0434\n"
+            f"\U0001f4b1 \u041c\u0430\u0440\u043a\u0435\u0442: {prof.market_sold} \u043f\u0440\u043e\u0434\u0430\u043d\u043e, {prof.market_bought} \u043a\u0443\u043f\u043b\u0435\u043d\u043e\n"
+            f"\U0001f48d \u0421\u0435\u043c\u044c\u044f: {family_str}\n"
+            f"\u2705 \u0417\u0430\u0434\u0430\u043d\u0438\u0439 \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u043e: {prof.tasks_done}\n"
+            f"\u23f1 \u0410\u043a\u0442\u0438\u0432\u043d\u043e\u0441\u0442\u044c: {int(prof.activity_seconds // 3600)}\u0447"
+        )
         await message.answer(text, reply_markup=ik_profile(), parse_mode='Markdown')
 
 async def screen_nick(message: Message) -> None:
-    text = f"{h('✏️ Смена ника')}\nЗдесь вы можете поменять ник.\n\nПравила:\n• длина 3-24 символа\n• буквы/цифры/пробел и символы _-[]().,!?:+@#\n• эмодзи в нике — только с Premium\n• кулдаун смены: 24 часа\n• антиспам: слишком частые попытки блокируются\n\nНажмите «Ввести новый ник», затем отправьте ник одним сообщением."
+    text = (
+        f"{h('\u270f\ufe0f \u0421\u043c\u0435\u043d\u0430 \u043d\u0438\u043a\u0430')}\n"
+        "\u0417\u0434\u0435\u0441\u044c \u0432\u044b \u043c\u043e\u0436\u0435\u0442\u0435 \u043f\u043e\u043c\u0435\u043d\u044f\u0442\u044c \u043d\u0438\u043a.\n\n"
+        "\u041f\u0440\u0430\u0432\u0438\u043b\u0430:\n"
+        "\u2022 \u0434\u043b\u0438\u043d\u0430 3-24 \u0441\u0438\u043c\u0432\u043e\u043b\u0430\n"
+        "\u2022 \u0431\u0443\u043a\u0432\u044b/\u0446\u0438\u0444\u0440\u044b/\u043f\u0440\u043e\u0431\u0435\u043b \u0438 \u0441\u0438\u043c\u0432\u043e\u043b\u044b _-[]().,!?:+@#\n"
+        "\u2022 \u044d\u043c\u043e\u0434\u0437\u0438 \u0432 \u043d\u0438\u043a\u0435 \u2014 \u0442\u043e\u043b\u044c\u043a\u043e \u0441 Premium\n"
+        "\u2022 \u043a\u0443\u043b\u0434\u0430\u0443\u043d \u0441\u043c\u0435\u043d\u044b: 24 \u0447\u0430\u0441\u0430\n"
+        "\u2022 \u0430\u043d\u0442\u0438\u0441\u043f\u0430\u043c: \u0441\u043b\u0438\u0448\u043a\u043e\u043c \u0447\u0430\u0441\u0442\u044b\u0435 \u043f\u043e\u043f\u044b\u0442\u043a\u0438 \u0431\u043b\u043e\u043a\u0438\u0440\u0443\u044e\u0442\u0441\u044f\n\n"
+        "\u041d\u0430\u0436\u043c\u0438\u0442\u0435 \u00ab\u0412\u0432\u0435\u0441\u0442\u0438 \u043d\u043e\u0432\u044b\u0439 \u043d\u0438\u043a\u00bb, \u0437\u0430\u0442\u0435\u043c \u043e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 \u043d\u0438\u043a \u043e\u0434\u043d\u0438\u043c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435\u043c."
+    )
     await message.answer(text, reply_markup=ik_nick())
 
 async def screen_get_card(message: Message) -> None:
@@ -127,17 +160,30 @@ async def screen_get_card(message: Message) -> None:
             result = await service.brawl_get_card(message.from_user.id)
         if not result.get('ok'):
             if 'cooldown' in result:
-                await message.answer(f"{h('🃏 Получить карту')}\nКулдаун: {seconds_to_hms(int(result['cooldown']))}\n\nПодсказка: Premium и бустеры могут сокращать ожидание.", reply_markup=ik_get_card())
+                await message.answer(
+                    f"{h('\U0001f0cf \u041f\u043e\u043b\u0443\u0447\u0438\u0442\u044c \u043a\u0430\u0440\u0442\u0443')}\n\u041a\u0443\u043b\u0434\u0430\u0443\u043d: {seconds_to_hms(int(result['cooldown']))}\n\n\u041f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0430: Premium \u0438 \u0431\u0443\u0441\u0442\u0435\u0440\u044b \u043c\u043e\u0433\u0443\u0442 \u0441\u043e\u043a\u0440\u0430\u0449\u0430\u0442\u044c \u043e\u0436\u0438\u0434\u0430\u043d\u0438\u0435.",
+                    reply_markup=ik_get_card(),
+                )
                 return
-            await message.answer(f"{h('🃏 Получить карту')}\n{result.get('error', 'Ошибка')}", reply_markup=ik_get_card())
+            await message.answer(f"{h('\U0001f0cf \u041f\u043e\u043b\u0443\u0447\u0438\u0442\u044c \u043a\u0430\u0440\u0442\u0443')}\n{result.get('error', '\u041e\u0448\u0438\u0431\u043a\u0430')}", reply_markup=ik_get_card())
             return
         card = result['card']
         title = card['title']
         rarity = f"{card['rarity_emoji']} {card['rarity_title']}"
         series = card['series']
-        is_limited = 'да' if card['is_limited'] else 'нет'
+        is_limited = '\u0434\u0430' if card['is_limited'] else '\u043d\u0435\u0442'
         obtained = card['obtained_at'].isoformat(timespec='seconds')
-        text = f"{h('🃏 Карта получена')}\n🪪 Название: *{title}*\n📚 Серия: `{series}`\n💠 Редкость: {rarity}\n📝 Описание: {card['description']}\n\n✨ Очки: +{card['points']}\n🪙 Монеты: +{card['coins']}\n🎟 Лимитка: {is_limited}\n🗓 Дата: `{obtained}`"
+        text = (
+            f"{h('\U0001f0cf \u041a\u0430\u0440\u0442\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0430')}\n"
+            f"\U0001faaa \u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435: *{title}*\n"
+            f"\U0001f4da \u0421\u0435\u0440\u0438\u044f: `{series}`\n"
+            f"\U0001f4a0 \u0420\u0435\u0434\u043a\u043e\u0441\u0442\u044c: {rarity}\n"
+            f"\U0001f4dd \u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435: {card['description']}\n\n"
+            f"\u2728 \u041e\u0447\u043a\u0438: +{card['points']}\n"
+            f"\U0001fa99 \u041c\u043e\u043d\u0435\u0442\u044b: +{card['coins']}\n"
+            f"\U0001f39f \u041b\u0438\u043c\u0438\u0442\u043a\u0430: {is_limited}\n"
+            f"\U0001f5d3 \u0414\u0430\u0442\u0430: `{obtained}`"
+        )
         file_id = card.get('image_file_id')
         if file_id:
             await message.answer_photo(file_id, caption=text, reply_markup=ik_get_card(), parse_mode='Markdown')
@@ -149,11 +195,11 @@ async def screen_bonus(message: Message) -> None:
         service = BrawlCardsService(session)
         tasks = await service.bonus_tasks()
         btns = [(t.key, f"{t.emoji} {t.title}") for t in tasks]
-    text = f"{h('🎁 Бонус')}\nЗдесь вы можете выполнить бонусные задания."
+    text = f"{h('\U0001f381 \u0411\u043e\u043d\u0443\u0441')}\n\u0417\u0434\u0435\u0441\u044c \u0432\u044b \u043c\u043e\u0436\u0435\u0442\u0435 \u0432\u044b\u043f\u043e\u043b\u043d\u0438\u0442\u044c \u0431\u043e\u043d\u0443\u0441\u043d\u044b\u0435 \u0437\u0430\u0434\u0430\u043d\u0438\u044f \u0438 \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u044c \u043d\u0430\u0433\u0440\u0430\u0434\u044b."
     await message.answer(text, reply_markup=ik_bonus_tasks(btns))
 
 async def screen_top(message: Message) -> None:
-    text = f"{h('🏆 Топ')}\nВыберите рейтинг."
+    text = f"{h('\U0001f3c6 \u0422\u043e\u043f')}\n\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0440\u0435\u0439\u0442\u0438\u043d\u0433."
     await message.answer(text, reply_markup=ik_top_select())
 
 async def screen_top_metric(message: Message, metric: str) -> None:
@@ -243,62 +289,28 @@ async def screen_shop_item(message: Message, item_key: str) -> None:
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
     await message.answer(text, reply_markup=kb, parse_mode="Markdown")
 
-async def screen_chest_detail(message: Message, chest_key: str) -> None:
-    if message.from_user is None:
-        return
-    await ensure_user(message)
-    async with SessionLocal() as session:
-        chest = await session.get(BcChest, chest_key)
-        if chest is None or not chest.is_active:
-            await message.answer(f"{h('📦 Сундук')}\nСундук не найден.", reply_markup=main_menu())
-            return
-    price_parts: list[str] = []
-    if chest.price_coins is not None:
-        price_parts.append(f"{chest.price_coins}🪙")
-    if chest.price_stars is not None:
-        price_parts.append(f"{chest.price_stars}⭐")
-    price = ' / '.join(price_parts) if price_parts else '—'
-    chest_title = f"{chest.emoji} {chest.title} сундук"
-    text = f"{h(chest_title)}\n{chest.description}\n\n💳 Цена: {price}\n🎁 Открытий: {chest.open_count}\n🎯 Таблица дропа: настраивается в админке."
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='📦 Открыть', callback_data=f"act:chest:open:{chest.key}")], [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:chest')]])
-    await message.answer(text, reply_markup=kb)
-
-async def screen_task_detail(message: Message, task_key: str) -> None:
-    if message.from_user is None:
-        return
-    await ensure_user(message)
-    async with SessionLocal() as session:
-        service = BrawlCardsService(session)
-        async with session.begin():
-            task = await session.get(BcTask, task_key)
-            if task is None or not task.is_active:
-                await message.answer(f"{h('📜 Задания')}\nЗадание не найдено.", reply_markup=main_menu())
-                return
-            row = await service.get_user_task(message.from_user.id, task)
-            await service.refresh_task_period(row, task)
-    status = '✅ выполнено' if row.completed_at else '⬛ не выполнено'
-    claimed = 'РґР°' if row.claimed_at else 'нет'
-    reward = task.reward or {}
-    text = f"{h('📜 Задание')}\n🏷 *{task.title}*\n📝 {task.description}\n\n📊 Прогресс: {row.progress}/{task.target}\n📌 Статус: {status}\n🎁 Награда: +{int(reward.get('coins') or 0)}🪙 +{int(reward.get('stars') or 0)}⭐ +{int(reward.get('points') or 0)}✨\n📥 Получено: {claimed}"
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='✅ Получить награду', callback_data=f"act:task:claim:{task.key}")], [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:tasks')]])
-    await message.answer(text, reply_markup=kb, parse_mode='Markdown')
-
-async def screen_shop(message: Message) -> None:
-    text = f"{h('\U0001f6d2 \u041c\u0430\u0433\u0430\u0437\u0438\u043d')}\n\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044e, \u043e\u0442\u043a\u0440\u043e\u0439\u0442\u0435 \u043e\u0444\u0444\u0435\u0440\u044b \u0434\u043d\u044f \u0438\u043b\u0438 \u043f\u043e\u0441\u043c\u043e\u0442\u0440\u0438\u0442\u0435 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0435 \u0438\u0432\u0435\u043d\u0442\u044b.\nTelegram Stars \u0434\u043b\u044f \u0446\u0438\u0444\u0440\u043e\u0432\u044b\u0445 \u043f\u043e\u043a\u0443\u043f\u043e\u043a \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u043f\u0440\u044f\u043c\u043e \u0432\u043d\u0443\u0442\u0440\u0438 \u0431\u043e\u0442\u0430."
-    await message.answer(text, reply_markup=ik_shop_categories())
-
 async def screen_chest(message: Message) -> None:
     async with SessionLocal() as session:
         service = BrawlCardsService(session)
         chests = await service.chests()
         items = [(c.key, f"{c.emoji} {c.title}") for c in chests]
-    text = f"{h('📦 Сундуки')}\nВыберите сундук для открытия."
+    text = f"{h('\U0001f4e6 \u0421\u0443\u043d\u0434\u0443\u043a\u0438')}\n\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u043d\u0434\u0443\u043a \u0434\u043b\u044f \u043e\u0442\u043a\u0440\u044b\u0442\u0438\u044f."
     await message.answer(text, reply_markup=ik_list_nav(items, prefix='nav:chest', back_to='main'))
 
 async def screen_premium(message: Message) -> None:
-    text = f"{h('💎 Премиум')}\nПреимущества:\n• меньше кулдаун на получение карточек\n• выше шанс редких карточек\n• эмодзи в нике\n• значок в топах\n• больше монет за карточки\n• меньше кулдауны в играх\n• эксклюзивные RP-возможности\n• рамки профиля и персонализация\n\nПокупка доступна в магазине: «💎 Премиум»."
+    text = (
+        f"{h('\U0001f48e \u041f\u0440\u0435\u043c\u0438\u0443\u043c')}\n"
+        "\u041f\u0440\u0435\u0438\u043c\u0443\u0449\u0435\u0441\u0442\u0432\u0430:\n"
+        "\u2022 \u043c\u0435\u043d\u044c\u0448\u0435 \u043a\u0443\u043b\u0434\u0430\u0443\u043d \u043d\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u0435\u043a\n"
+        "\u2022 \u0432\u044b\u0448\u0435 \u0448\u0430\u043d\u0441 \u0440\u0435\u0434\u043a\u0438\u0445 \u043a\u0430\u0440\u0442\u043e\u0447\u0435\u043a\n"
+        "\u2022 \u044d\u043c\u043e\u0434\u0437\u0438 \u0432 \u043d\u0438\u043a\u0435\n"
+        "\u2022 \u0437\u043d\u0430\u0447\u043e\u043a \u0432 \u0442\u043e\u043f\u0430\u0445\n"
+        "\u2022 \u0431\u043e\u043b\u044c\u0448\u0435 \u043c\u043e\u043d\u0435\u0442 \u0437\u0430 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438\n"
+        "\u2022 \u043c\u0435\u043d\u044c\u0448\u0435 \u043a\u0443\u043b\u0434\u0430\u0443\u043d\u044b \u0432 \u0438\u0433\u0440\u0430\u0445\n"
+        "\u2022 \u044d\u043a\u0441\u043a\u043b\u044e\u0437\u0438\u0432\u043d\u044b\u0435 RP-\u0432\u043e\u0437\u043c\u043e\u0436\u043d\u043e\u0441\u0442\u0438\n"
+        "\u2022 \u0440\u0430\u043c\u043a\u0438 \u043f\u0440\u043e\u0444\u0438\u043b\u044f \u0438 \u043f\u0435\u0440\u0441\u043e\u043d\u0430\u043b\u0438\u0437\u0430\u0446\u0438\u044f\n\n"
+        "\u041f\u043e\u043a\u0443\u043f\u043a\u0430 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430 \u0432 \u043c\u0430\u0433\u0430\u0437\u0438\u043d\u0435: \u00ab\U0001f48e \u041f\u0440\u0435\u043c\u0438\u0443\u043c\u00bb."
+    )
     await message.answer(text, reply_markup=ik_shop_categories())
 
 async def screen_tasks(message: Message) -> None:
@@ -309,26 +321,26 @@ async def screen_tasks(message: Message) -> None:
         service = BrawlCardsService(session)
         async with session.begin():
             tasks = await service.tasks()
-            lines: list[str] = [h('📜 Задания'), 'Выберите задание и получите награду:']
+            lines: list[str] = [h('\U0001f4dc \u0417\u0430\u0434\u0430\u043d\u0438\u044f'), '\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u0438 \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u0435 \u043d\u0430\u0433\u0440\u0430\u0434\u0443:']
             buttons: list[tuple[str, str]] = []
             for t in tasks:
                 row = await service.get_user_task(message.from_user.id, t)
                 await service.refresh_task_period(row, t)
-                status = '✅' if row.claimed_at else '🟩' if row.completed_at else 'в¬›'
-                lines.append(f"{status} {t.title} — {row.progress}/{t.target}")
+                status = '\u2705' if row.claimed_at else '\U0001f7e9' if row.completed_at else '\u2b1b'
+                lines.append(f"{status} {t.title} \u2014 {row.progress}/{t.target}")
                 buttons.append((t.key, f"{status} {t.title[:28]}"))
     await message.answer('\n'.join(lines), reply_markup=ik_list_nav(buttons, prefix='nav:task', back_to='main'))
 
 async def screen_rp(message: Message) -> None:
-    text = f"{h('🎭 RP')}\nВыберите действие.\nЕсли нужно указать цель — ответьте на сообщение пользователя и нажмите действие."
+    text = f"{h('\U0001f3ad RP')}\n\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435.\n\u0415\u0441\u043b\u0438 \u043d\u0443\u0436\u043d\u043e \u0443\u043a\u0430\u0437\u0430\u0442\u044c \u0446\u0435\u043b\u044c \u2014 \u043e\u0442\u0432\u0435\u0442\u044c\u0442\u0435 \u043d\u0430 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f \u0438 \u043d\u0430\u0436\u043c\u0438\u0442\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435."
     await message.answer(text, reply_markup=ik_nav('main'))
 
 async def screen_quote(message: Message) -> None:
-    text = f"{h('💬 Цитата')}\nВведите текст цитаты сообщением (скоро будет выбор по карточке)."
+    text = f"{h('\U0001f4ac \u0426\u0438\u0442\u0430\u0442\u0430')}\n\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0442\u0435\u043a\u0441\u0442 \u0446\u0438\u0442\u0430\u0442\u044b \u043e\u0434\u043d\u0438\u043c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435\u043c. \u0411\u043e\u0442 \u0441\u0434\u0435\u043b\u0430\u0435\u0442 \u043e\u0444\u043e\u0440\u043c\u043b\u0435\u043d\u043d\u0443\u044e \u0446\u0438\u0442\u0430\u0442\u0443."
     await message.answer(text, reply_markup=ik_nav('main'))
 
 async def screen_sticker(message: Message) -> None:
-    text = f"{h('🎨 Стикер')}\nВыберите карточку/шаблон (MVP: будет добавлено)."
+    text = f"{h('\U0001f3a8 \u0421\u0442\u0438\u043a\u0435\u0440')}\n\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0446\u0435\u043d\u0430\u0440\u0438\u0439: \u0441\u0442\u0438\u043a\u0435\u0440 \u043f\u043e \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0439 \u043a\u0430\u0440\u0442\u0435 \u0438\u043b\u0438 \u043f\u043e \u0441\u0432\u043e\u0435\u043c\u0443 \u0442\u0435\u043a\u0441\u0442\u043e\u0432\u043e\u043c\u0443 \u0448\u0430\u0431\u043b\u043e\u043d\u0443."
     await message.answer(text, reply_markup=ik_nav('main'))
 
 async def screen_games(message: Message) -> None:
@@ -392,19 +404,15 @@ async def screen_admin(message: Message) -> None:
     if not is_admin_id(message.from_user.id):
         allowed = ", ".join(str(x) for x in sorted(get_settings().admin_id_set()))
         await message.answer(
-            f"{h('🛠 Админ-панель')}\n"
-            f"Доступ запрещён.\n"
-            f"Ваш ID: `{message.from_user.id}`\n"
-            f"Разрешённые ID: `{allowed}`",
+            f"{h('\U0001f6e0 \u0410\u0434\u043c\u0438\u043d-\u043f\u0430\u043d\u0435\u043b\u044c')}\n"
+            f"\u0414\u043e\u0441\u0442\u0443\u043f \u0437\u0430\u043f\u0440\u0435\u0449\u0451\u043d.\n"
+            f"\u0412\u0430\u0448 ID: `{message.from_user.id}`\n"
+            f"\u0420\u0430\u0437\u0440\u0435\u0448\u0451\u043d\u043d\u044b\u0435 ID: `{allowed}`",
             reply_markup=main_menu(is_admin=is_admin_id(message.from_user.id)),
-            parse_mode="Markdown",
+            parse_mode='Markdown',
         )
         return
-    await message.answer(
-        f"{h('🛠 Админ-панель')}\nВыберите раздел.",
-        reply_markup=ik_admin_main(),
-    )
-
+    await message.answer(f"{h('\U0001f6e0 \u0410\u0434\u043c\u0438\u043d-\u043f\u0430\u043d\u0435\u043b\u044c')}\n\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0440\u0430\u0437\u0434\u0435\u043b.", reply_markup=ik_admin_main())
 
 async def render_admin_section_v2(message: Message, section: str) -> bool:
     if message.from_user is None or not is_admin_id(message.from_user.id):
@@ -537,32 +545,31 @@ async def render_admin_section_v2(message: Message, section: str) -> bool:
             links = await service.get_system_section('bonus_links')
             lines = [
                 h('⚙️ Настройки бота'),
-                'Здесь можно менять игровые таймеры, награды и bonus-ссылки.',
+                'Здесь можно менять таймеры, награды и бонусные ссылки.',
                 '',
                 '⏱ Кулдауны:',
-                f"• Карта: {int(cooldowns.get("brawl_cards") or 0)}с",
-                f"• Бонус: {int(cooldowns.get("bonus") or 0)}с",
-                f"• Смена ника: {int(cooldowns.get("nick_change") or 0)}с",
-                f"• Dice: {int(cooldowns.get("dice") or 0)}с",
-                f"• Guess rarity: {int(cooldowns.get("guess_rarity") or 0)}с",
-                f"• Coinflip: {int(cooldowns.get("coinflip") or 0)}с",
-                f"• Card battle: {int(cooldowns.get("card_battle") or 0)}с",
-                f"• Slot: {int(cooldowns.get("slot") or 0)}с",
-                f"• Premium reduction: {int(cooldowns.get("premium_game_reduction") or 0)}с",
+                f"• Карточка: {int(cooldowns.get('brawl_cards') or 0)}с",
+                f"• Бонус: {int(cooldowns.get('bonus') or 0)}с",
+                f"• Смена ника: {int(cooldowns.get('nick_change') or 0)}с",
+                f"• Dice: {int(cooldowns.get('dice') or 0)}с",
+                f"• Guess rarity: {int(cooldowns.get('guess_rarity') or 0)}с",
+                f"• Coinflip: {int(cooldowns.get('coinflip') or 0)}с",
+                f"• Card battle: {int(cooldowns.get('card_battle') or 0)}с",
+                f"• Slot: {int(cooldowns.get('slot') or 0)}с",
+                f"• Premium reduction: {int(cooldowns.get('premium_game_reduction') or 0)}с",
                 '',
                 '🎁 Награды:',
-                f"• Bonus coins: {int(rewards.get("bonus_coins") or 0)}",
-                f"• Bonus stars: {int(rewards.get("bonus_stars") or 0)}",
-                f"• Market fee: {int(rewards.get("market_fee_percent") or 0)}%",
+                f"• Bonus coins: {int(rewards.get('bonus_coins') or 0)}",
+                f"• Bonus stars: {int(rewards.get('bonus_stars') or 0)}",
+                f"• Market fee: {int(rewards.get('market_fee_percent') or 0)}%",
                 '',
                 '🔗 Bonus-ссылки:',
-                f"• chat: {links.get("chat") or "—"}",
-                f"• subscribe: {links.get("subscribe") or "—"}",
-                f"• news: {links.get("news") or "—"}",
-                f"• invite: {links.get("invite") or "—"}",
-                f"• partner: {links.get("partner") or "—"}",
+                f"• chat: {links.get('chat') or '—'}",
+                f"• subscribe: {links.get('subscribe') or '—'}",
+                f"• news: {links.get('news') or '—'}",
+                f"• invite: {links.get('invite') or '—'}",
+                f"• partner: {links.get('partner') or '—'}",
             ]
-            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
             kb = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(text='⏱ Изменить кулдауны', callback_data='act:admin:sys:edit:cooldowns')],
@@ -1030,14 +1037,59 @@ async def on_start(message: Message) -> None:
     await ensure_user(message)
     await send_start(message)
 
-@router.message(Command(commands=['help', 'помощь']))
+@router.message(Command(commands=['help', '??????']))
 async def on_help(message: Message) -> None:
-    await message.answer(f"{h('ℹ️ Помощь')}\nЭтот бот почти не использует slash-команды.\nОткройте меню снизу и нажимайте кнопки.\n\nКоманды для входа:\n/start — главное меню")
+    text = (
+        f"{h('?? ??????')}\n"
+        "???????? ?????????? ???? ????? ?????? ??? ??????????.\n\n"
+        "??????? ???????:\n"
+        "/start ? ??????? ?????\n"
+        "/help ? ????????? ?? ????\n"
+        "/admin ? ?????-??????\n"
+        "/profile ? ???????\n"
+        "/card ? ???????? ?????\n"
+        "/bonus ? ??????\n"
+        "/shop ? ???????\n"
+        "/games ? ????-????\n"
+        "/top ? ????????\n\n"
+        "????????? ???????? ???????? ????? ???? ?????."
+    )
+    await message.answer(text, reply_markup=main_menu(is_admin=is_admin_id(message.from_user.id if message.from_user else 0)))
 
 @router.message(Command(commands=['admin']))
 async def on_admin_command(message: Message) -> None:
     await ensure_user(message)
     await show_screen(message, 'admin')
+
+@router.message(Command(commands=['profile']))
+async def on_profile_command(message: Message) -> None:
+    await ensure_user(message)
+    await show_screen(message, 'profile')
+
+@router.message(Command(commands=['card']))
+async def on_card_command(message: Message) -> None:
+    await ensure_user(message)
+    await show_screen(message, 'get_card')
+
+@router.message(Command(commands=['bonus']))
+async def on_bonus_command(message: Message) -> None:
+    await ensure_user(message)
+    await show_screen(message, 'bonus')
+
+@router.message(Command(commands=['shop']))
+async def on_shop_command(message: Message) -> None:
+    await ensure_user(message)
+    await show_screen(message, 'shop')
+
+@router.message(Command(commands=['games']))
+async def on_games_command(message: Message) -> None:
+    await ensure_user(message)
+    await show_screen(message, 'games')
+
+@router.message(Command(commands=['top']))
+async def on_top_command(message: Message) -> None:
+    await ensure_user(message)
+    await show_screen(message, 'top')
 
 @router.message(F.text.in_(MAIN_MENU_BUTTONS))
 async def on_main_menu_button(message: Message) -> None:
@@ -1244,8 +1296,8 @@ async def on_action(callback: CallbackQuery) -> None:
                 return
             if action.startswith('act:bonus:mark:'):
                 task_key = action.split(':', maxsplit=3)[3]
-                await service.mark_bonus_task_done(callback.from_user.id, task_key)
-                await callback.message.answer(f"{h('🎁 Бонус')}\nЗадание отмечено как выполненное.", reply_markup=main_menu())
+                ok, resp = await service.verify_and_mark_bonus_task(callback.bot, callback.from_user.id, task_key)
+                await callback.message.answer(f"{h('?? ?????')}\n{resp}", reply_markup=main_menu())
                 return
             if action == 'act:bonus:check':
                 ok, resp = await service.bonus_claim_if_ready(callback.from_user.id)
@@ -1856,8 +1908,8 @@ async def on_state_text_input(message: Message) -> None:
             if not is_admin_id(message.from_user.id):
                 await message.answer('Access denied', reply_markup=main_menu())
                 return
-            async with session.begin():
-                result = await consume_admin_card_wizard_input(session, service, message.from_user.id, raw)
+            result = await consume_admin_card_wizard_input(session, service, message.from_user.id, raw)
+            await session.commit()
             await message.answer(
                 result['text'],
                 parse_mode=result.get('parse_mode'),
@@ -2013,89 +2065,6 @@ async def on_photo_input(message: Message) -> None:
                 await message.answer('RP-???????? ?????????.', reply_markup=main_menu())
                 await screen_admin_rp_action(message, key)
                 return
-        if state.state == 'admin_card_wizard':
-            if not is_admin_id(message.from_user.id):
-                await message.answer('Access denied', reply_markup=main_menu())
-                return
-            payload = dict(state.payload or {})
-            mode = str(payload.get('mode') or 'create')
-            step = str(payload.get('step') or '')
-            data = dict(payload.get('data') or {})
-            steps = CARD_WIZARD_STEPS.get(mode, CARD_WIZARD_STEPS['create'])
-            raw = message.text.strip()
-            if raw.lower() in {'отмена', 'cancel', '/cancel'}:
-                async with session.begin():
-                    await service.clear_input_state(message.from_user.id)
-                await message.answer(f"{h('🃏 Конструктор карточки')}\nСоздание или редактирование карточки отменено.", reply_markup=main_menu())
-                return
-            if not step or step not in steps:
-                await message.answer('Состояние конструктора карточки повреждено.', reply_markup=main_menu())
-                return
-            if mode == 'edit' and raw == '-' and step != 'photo':
-                value = data.get(step)
-            else:
-                if step == 'key':
-                    value = raw.lower().replace(' ', '_')
-                    if not value:
-                        await message.answer('Нужен key карточки.', reply_markup=ik_admin_card_wizard())
-                        return
-                elif step in {'title', 'description', 'series'}:
-                    value = raw
-                    if step in {'title', 'description'} and not value:
-                        await message.answer('Это поле обязательно.', reply_markup=ik_admin_card_wizard())
-                        return
-                elif step == 'rarity_key':
-                    resolved = await resolve_rarity_key(session, raw)
-                    if resolved is None:
-                        hint = await card_rarity_hint(session)
-                        await message.answer(f"Редкость не найдена.\n\n{hint}", parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
-                        return
-                    value = resolved
-                elif step in {'points', 'coins', 'sort'}:
-                    try:
-                        value = int(raw)
-                    except ValueError:
-                        await message.answer('Нужно целое число.', reply_markup=ik_admin_card_wizard())
-                        return
-                elif step == 'drop_weight':
-                    try:
-                        value = float(raw)
-                    except ValueError:
-                        await message.answer('Нужно число. Пример: `1` или `0.35`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
-                        return
-                elif step in {'is_limited', 'is_sellable', 'is_active'}:
-                    normalized = raw.lower()
-                    if normalized not in {'0', '1', 'да', 'нет'}:
-                        await message.answer('Нужно `1/0` или `да/нет`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard())
-                        return
-                    value = 1 if normalized in {'1', 'да'} else 0
-                elif step == 'photo':
-                    if raw != '-':
-                        await message.answer('На этом шаге отправьте фото или `-`.', parse_mode='Markdown', reply_markup=ik_admin_card_wizard(can_skip_photo=True))
-                        return
-                    value = data.get('photo') or ''
-                else:
-                    value = raw
-            if step == 'photo':
-                data['photo'] = value
-                payload['data'] = data
-                async with session.begin():
-                    ok, resp, card_id = await save_card_wizard_payload(session, service, message.from_user.id, payload)
-                await message.answer(resp, reply_markup=main_menu())
-                if ok and card_id:
-                    await screen_admin_card(message, card_id)
-                return
-            data[step] = value
-            next_index = steps.index(step) + 1
-            next_step = steps[next_index]
-            async with session.begin():
-                await service.set_input_state(message.from_user.id, 'admin_card_wizard', {'mode': mode, 'id': payload.get('id'), 'step': next_step, 'data': data})
-            reply_markup = ik_admin_card_wizard(can_skip_photo=(next_step == 'photo'))
-            extra = ''
-            if next_step == 'rarity_key':
-                extra = f"\n\n{await card_rarity_hint(session)}"
-            await message.answer(f"{card_wizard_prompt(mode, next_step, data)}{extra}", parse_mode='Markdown', reply_markup=reply_markup)
-            return
         if state.state == 'admin_card_form':
             if not is_admin_id(message.from_user.id):
                 await message.answer('Access denied', reply_markup=main_menu())

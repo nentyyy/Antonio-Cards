@@ -4,6 +4,7 @@ import asyncio
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.types import BotCommand
 
 from app.bot.handlers import router as user_router
 from app.config import get_settings
@@ -24,6 +25,19 @@ async def main() -> None:
     await seed_defaults()
 
     bot = Bot(token=settings.bot_token, session=AiohttpSession(timeout=60))
+    await bot.set_my_commands(
+        [
+            BotCommand(command="start", description="Главный экран"),
+            BotCommand(command="help", description="Подсказка по боту"),
+            BotCommand(command="profile", description="Профиль"),
+            BotCommand(command="card", description="Получить карту"),
+            BotCommand(command="bonus", description="Бонусы"),
+            BotCommand(command="shop", description="Магазин"),
+            BotCommand(command="games", description="Мини-игры"),
+            BotCommand(command="top", description="Рейтинги"),
+            BotCommand(command="admin", description="Вход в админ-панель"),
+        ]
+    )
     dp = Dispatcher()
     dp.message.middleware(RequestLoggingMiddleware())
     dp.message.middleware(AntiFloodMiddleware(cooldown=0.7))

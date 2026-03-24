@@ -3,6 +3,8 @@ import random
 import re
 from dataclasses import dataclass
 from datetime import timedelta
+from urllib.parse import urlparse
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
@@ -65,10 +67,19 @@ class BrawlCardsService:
             self.session.add(user)
             await self.session.flush()
         else:
-            user.username = username
-            user.first_name = first_name
-            user.last_active_at = now
-            await self.session.flush()
+            changed = False
+            if user.username != username:
+                user.username = username
+                changed = True
+            if user.first_name != first_name:
+                user.first_name = first_name
+                changed = True
+            last_active = ensure_utc(user.last_active_at)
+            if last_active is None or (now - last_active).total_seconds() >= 60:
+                user.last_active_at = now
+                changed = True
+            if changed:
+                await self.session.flush()
         await self.ensure_profile(user_id)
         await self.ensure_settings(user_id)
         return user
@@ -264,6 +275,64 @@ class BrawlCardsService:
         if row.completed_at is None:
             row.completed_at = utcnow()
             await self.session.flush()
+
+    def bonus_task_chat_ref(self, task: BcBonusTask) -> str | int | None:
+        cfg = dict(task.config or {})
+        for key in ('chat_id', 'channel_id', 'chat', 'channel', 'username'):
+            value = cfg.get(key)
+            if value not in (None, ''):
+                return value
+        raw_url = str(cfg.get('url') or '').strip()
+        if raw_url:
+            parsed = urlparse(raw_url)
+            path = (parsed.path or '').strip('/')
+            if path and not path.startswith('+'):
+                return f"@{path.split('/')[0]}"
+        return None
+
+    async def verify_and_mark_bonus_task(self, bot, user_id: int, task_key: str) -> tuple[bool, str]:
+        task = await self.session.get(BcBonusTask, task_key)
+        if task is None or not task.is_active:
+            return (False, 'Бонусное задание не найдено.')
+        if task.type not in {'subscribe', 'channel', 'chat'}:
+            await self.mark_bonus_task_done(user_id, task_key)
+            return (True, 'Задание отмечено как выполненное.')
+
+        chat_ref = self.bonus_task_chat_ref(task)
+        if chat_ref is None:
+            return (False, 'У задания не настроен chat_id, username или ссылка на чат.')
+
+        try:
+            me = await bot.get_me()
+            bot_member = await bot.get_chat_member(chat_ref, me.id)
+        except TelegramForbiddenError:
+            return (False, 'Бот не имеет доступа к чату для проверки подписки.')
+        except TelegramBadRequest as exc:
+            return (False, f'Не удалось открыть чат для проверки: {exc.message}.')
+        except Exception as exc:
+            return (False, f'Ошибка проверки прав бота: {exc}.')
+
+        if getattr(bot_member, 'status', '') not in {'administrator', 'creator'}:
+            return (False, 'Проверка невозможна: бот должен быть администратором в этом чате или канале.')
+
+        try:
+            member = await bot.get_chat_member(chat_ref, user_id)
+        except TelegramForbiddenError:
+            return (False, 'Чат недоступен для проверки подписки.')
+        except TelegramBadRequest as exc:
+            return (False, f'Не удалось проверить подписку пользователя: {exc.message}.')
+        except Exception as exc:
+            return (False, f'Ошибка проверки подписки: {exc}.')
+
+        if getattr(member, 'status', '') not in {'member', 'administrator', 'creator'}:
+            return (False, 'Подписка не найдена. Сначала вступите в нужный чат или канал.')
+
+        row = await self.user_bonus_task(user_id, task_key)
+        row.state = {**dict(row.state or {}), 'verified_at': utcnow().isoformat(), 'chat_ref': str(chat_ref)}
+        if row.completed_at is None:
+            row.completed_at = utcnow()
+        await self.session.flush()
+        return (True, 'Подписка подтверждена. Задание засчитано.')
 
     async def bonus_claim_if_ready(self, user_id: int) -> tuple[bool, str]:
         tasks = await self.bonus_tasks()
