@@ -17,6 +17,10 @@ services:
     env_file:
       - .env
     command: python -m app.main_user
+    volumes:
+      - ./cards_arena_test.db:/app/cards_arena_test.db
+      - ./cards_arena_test.db-wal:/app/cards_arena_test.db-wal
+      - ./cards_arena_test.db-shm:/app/cards_arena_test.db-shm
     depends_on:
       - postgres
 
