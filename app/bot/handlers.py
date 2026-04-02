@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
@@ -93,7 +94,11 @@ async def screen_bonus(message: Message) -> None:
         service = BrawlCardsService(session)
         tasks = await service.bonus_tasks()
         btns = [(t.key, f"{t.emoji} {t.title}") for t in tasks]
-    text = f"{h('\U0001f381 \u0411\u043e\u043d\u0443\u0441')}\n\u0417\u0434\u0435\u0441\u044c \u0432\u044b \u043c\u043e\u0436\u0435\u0442\u0435 \u0432\u044b\u043f\u043e\u043b\u043d\u0438\u0442\u044c \u0431\u043e\u043d\u0443\u0441\u043d\u044b\u0435 \u0437\u0430\u0434\u0430\u043d\u0438\u044f \u0438 \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u044c \u043d\u0430\u0433\u0440\u0430\u0434\u044b."
+    text = (
+        f"{h('🎁 Бонус')}\n"
+        f"Активных бонусных задач: {len(tasks)}\n"
+        "Откройте задание, выполните условие и отдельно запустите проверку."
+    )
     await message.answer(text, reply_markup=ik_bonus_tasks(btns))
 
 async def screen_shop(message: Message) -> None:
@@ -171,22 +176,20 @@ async def screen_chest(message: Message) -> None:
         service = BrawlCardsService(session)
         chests = await service.chests()
         items = [(c.key, f"{c.emoji} {c.title}") for c in chests]
-    text = f"{h('\U0001f4e6 \u0421\u0443\u043d\u0434\u0443\u043a\u0438')}\n\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u043d\u0434\u0443\u043a \u0434\u043b\u044f \u043e\u0442\u043a\u0440\u044b\u0442\u0438\u044f."
+    text = f"{h('📦 Сундуки')}\nДоступно сундуков: {len(chests)}\nОткройте карточку сундука и посмотрите цену, лимиты и дроп."
     await message.answer(text, reply_markup=ik_list_nav(items, prefix='nav:chest', back_to='main'))
 
 async def screen_premium(message: Message) -> None:
     text = (
-        f"{h('\U0001f48e \u041f\u0440\u0435\u043c\u0438\u0443\u043c')}\n"
-        "\u041f\u0440\u0435\u0438\u043c\u0443\u0449\u0435\u0441\u0442\u0432\u0430:\n"
-        "\u2022 \u043c\u0435\u043d\u044c\u0448\u0435 \u043a\u0443\u043b\u0434\u0430\u0443\u043d \u043d\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u0435\u043a\n"
-        "\u2022 \u0432\u044b\u0448\u0435 \u0448\u0430\u043d\u0441 \u0440\u0435\u0434\u043a\u0438\u0445 \u043a\u0430\u0440\u0442\u043e\u0447\u0435\u043a\n"
-        "\u2022 \u044d\u043c\u043e\u0434\u0437\u0438 \u0432 \u043d\u0438\u043a\u0435\n"
-        "\u2022 \u0437\u043d\u0430\u0447\u043e\u043a \u0432 \u0442\u043e\u043f\u0430\u0445\n"
-        "\u2022 \u0431\u043e\u043b\u044c\u0448\u0435 \u043c\u043e\u043d\u0435\u0442 \u0437\u0430 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438\n"
-        "\u2022 \u043c\u0435\u043d\u044c\u0448\u0435 \u043a\u0443\u043b\u0434\u0430\u0443\u043d\u044b \u0432 \u0438\u0433\u0440\u0430\u0445\n"
-        "\u2022 \u044d\u043a\u0441\u043a\u043b\u044e\u0437\u0438\u0432\u043d\u044b\u0435 RP-\u0432\u043e\u0437\u043c\u043e\u0436\u043d\u043e\u0441\u0442\u0438\n"
-        "\u2022 \u0440\u0430\u043c\u043a\u0438 \u043f\u0440\u043e\u0444\u0438\u043b\u044f \u0438 \u043f\u0435\u0440\u0441\u043e\u043d\u0430\u043b\u0438\u0437\u0430\u0446\u0438\u044f\n\n"
-        "\u041f\u043e\u043a\u0443\u043f\u043a\u0430 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430 \u0432 \u043c\u0430\u0433\u0430\u0437\u0438\u043d\u0435: \u00ab\U0001f48e \u041f\u0440\u0435\u043c\u0438\u0443\u043c\u00bb."
+        f"{h('💎 Премиум')}\n"
+        "Premium ускоряет игру и убирает лишнее ожидание.\n\n"
+        "Что даёт:\n"
+        "• меньше cooldown на карты и игры\n"
+        "• выше шанс редких карт\n"
+        "• больше награда за дроп\n"
+        "• расширенные RP-возможности\n"
+        "• визуальные отметки в профиле\n\n"
+        "Покупка доступна в разделе Premium магазина."
     )
     await message.answer(text, reply_markup=ik_shop_categories())
 
@@ -274,7 +277,11 @@ async def render_game_detail(message: Message, game_key: str) -> None:
 
 
 async def screen_market(message: Message) -> None:
-    text = f"{h('\U0001f4b1 \u041c\u0430\u0440\u043a\u0435\u0442')}\n\u0422\u043e\u0440\u0433\u043e\u0432\u0430\u044f \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0430: \u043f\u043e\u043a\u0443\u043f\u043a\u0430, \u043f\u0440\u043e\u0434\u0430\u0436\u0430, \u043f\u043e\u0438\u0441\u043a \u0438 \u0438\u0441\u0442\u043e\u0440\u0438\u044f \u043b\u043e\u0442\u043e\u0432."
+    text = (
+        f"{h('💱 Маркет')}\n"
+        "Здесь продаются карточки игроков.\n"
+        "Откройте покупку, историю или свои лоты через кнопки ниже."
+    )
     await message.answer(text, reply_markup=ik_market_menu())
 
 
@@ -459,21 +466,33 @@ async def render_admin_section_v2(message: Message, section: str) -> bool:
         if section == 'shop':
             cats = (await session.scalars(select(BcShopCategory).order_by(BcShopCategory.sort))).all()
             items = (await session.scalars(select(BcShopItem).order_by(BcShopItem.sort).limit(20))).all()
-            lines = [h('🛒 Магазин'), 'Категории:']
-            for cat in cats:
-                lines.append(f"• {cat.emoji} {cat.title} | key={cat.key}")
-            lines.append('')
-            lines.append('Товары:')
-            for item in items:
-                lines.append(f"• {item.title} | key={item.key} | cat={item.category_key}")
-            await message.answer('\n'.join(lines), reply_markup=ik_admin_main())
+            rows: list[list[InlineKeyboardButton]] = [
+                [InlineKeyboardButton(text='➕ Категория', callback_data='act:admin:shop_category:create')],
+                [InlineKeyboardButton(text='➕ Товар', callback_data='act:admin:shop_item:create')],
+            ]
+            for cat in cats[:8]:
+                rows.append([InlineKeyboardButton(text=f"{cat.emoji} {cat.title}", callback_data=f"nav:admin_shopcat:{cat.key}")])
+            for item in items[:10]:
+                rows.append([InlineKeyboardButton(text=f"🛍 {item.title}", callback_data=f"nav:admin_shopitem:{item.id}")])
+            rows.append([InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin')])
+            kb = InlineKeyboardMarkup(inline_keyboard=rows)
+            lines = [h('🛒 Магазин'), f'Категорий: {len(cats)}', f'Товаров: {len(items)}', '', 'Выберите категорию или товар для управления.']
+            await message.answer('\n'.join(lines), reply_markup=kb)
             return True
         if section == 'tasks':
             rows = (await session.scalars(select(BcTask).order_by(BcTask.sort).limit(20))).all()
-            lines = [h('📜 Задания'), 'Задания системы:']
-            for task in rows:
-                lines.append(f"• {task.title} | {task.kind} | target={task.target} | active={int(task.is_active)}")
-            await message.answer('\n'.join(lines), reply_markup=ik_admin_main())
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text='➕ Добавить задание', callback_data='act:admin:task:create')],
+                    *[
+                        [InlineKeyboardButton(text=f"{'🟢' if task.is_active else '⚫'} {task.title}", callback_data=f"nav:admin_task:{task.key}")]
+                        for task in rows
+                    ],
+                    [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin')],
+                ]
+            )
+            lines = [h('📜 Задания'), f'Активных и скрытых записей: {len(rows)}', '', 'Выберите задание для редактирования.']
+            await message.answer('\n'.join(lines), reply_markup=kb)
             return True
         if section == 'rp':
             cats = (await session.scalars(select(BcRPCategory).order_by(BcRPCategory.sort))).all()
@@ -495,11 +514,26 @@ async def render_admin_section_v2(message: Message, section: str) -> bool:
         if section == 'tops':
             users_total = int(await session.scalar(select(func.count()).select_from(User)) or 0)
             cards_total = int(await session.scalar(select(func.count()).select_from(BcCardInstance)) or 0)
-            await message.answer(f"{h('🏆 Топы и сезоны')}\nПользователей: {users_total}\nВыданных карт: {cards_total}\nСезонные награды готовы к расширению.", reply_markup=ik_admin_main())
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text='👥 К пользователям', callback_data='nav:admin:users')],
+                    [InlineKeyboardButton(text='🃏 К карточкам', callback_data='nav:admin:cards')],
+                    [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin')],
+                ]
+            )
+            await message.answer(f"{h('🏆 Топы и сезоны')}\nПользователей: {users_total}\nВыданных карт: {cards_total}\nКонтур рейтингов привязан к пользователям и карточкам.", reply_markup=kb)
             return True
         if section == 'economy':
             lots_total = int(await session.scalar(select(func.count()).select_from(BcMarketLot)) or 0)
-            await message.answer(f"{h('💰 Экономика')}\nЛотов на маркете: {lots_total}\nЭкономика управляется редкостями, бустерами, картами и товарами магазина.", reply_markup=ik_admin_main())
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text='👥 Управление пользователем', callback_data='act:admin:user:manage:start')],
+                    [InlineKeyboardButton(text='🛒 Магазин', callback_data='nav:admin:shop')],
+                    [InlineKeyboardButton(text='📦 Сундуки', callback_data='nav:admin:chests')],
+                    [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin')],
+                ]
+            )
+            await message.answer(f"{h('💰 Экономика')}\nЛотов на маркете: {lots_total}\nБаланс, цены и выдачи теперь управляются через пользователей, магазин и сундуки.", reply_markup=kb)
             return True
         if section == 'broadcast':
             total_users = int(await session.scalar(select(func.count()).select_from(User)) or 0)
@@ -521,26 +555,40 @@ async def render_admin_section_v2(message: Message, section: str) -> bool:
             return True
         if section == 'events':
             rows = (await session.scalars(select(BcEvent).order_by(BcEvent.created_at.desc()).limit(10))).all()
-            lines = [h('🎉 Ивенты'), 'Список ивентов:']
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text='➕ Добавить ивент', callback_data='act:admin:event:create')],
+                    *[
+                        [InlineKeyboardButton(text=f"{'🟢' if event.is_active else '⚫'} {event.title}", callback_data=f"nav:admin_event:{event.key}")]
+                        for event in rows
+                    ],
+                    [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin')],
+                ]
+            )
+            lines = [h('🎉 Ивенты'), f'Ивентов в системе: {len(rows)}', '', 'Выберите ивент для управления.']
             if not rows:
-                lines.append('• Ивенты ещё не созданы.')
-            for event in rows:
-                lines.append(f"• {event.title} | key={event.key} | active={int(event.is_active)}")
-            await message.answer('\n'.join(lines), reply_markup=ik_admin_main())
+                lines.append('Список пуст.')
+            await message.answer('\n'.join(lines), reply_markup=kb)
             return True
         if section == 'permissions':
             roles = (await session.scalars(select(BcRole).order_by(BcRole.key))).all()
             perms = (await session.scalars(select(BcPermission).order_by(BcPermission.code).limit(20))).all()
-            lines = [h('🔐 Права'), 'Роли:']
-            for role in roles:
+            rows: list[list[InlineKeyboardButton]] = [
+                [InlineKeyboardButton(text='➕ Роль', callback_data='act:admin:role:create')],
+                [InlineKeyboardButton(text='➕ Право', callback_data='act:admin:permission:create')],
+                [InlineKeyboardButton(text='👤 Выдать/снять роль', callback_data='act:admin:role:grant:start')],
+                [InlineKeyboardButton(text='🔗 Привязать/снять право', callback_data='act:admin:role:link_permission:start')],
+            ]
+            for role in roles[:8]:
                 assigned = int(await session.scalar(select(func.count()).select_from(BcUserRole).where(BcUserRole.role_key == role.key)) or 0)
-                lines.append(f"• {role.title} | key={role.key} | users={assigned}")
-            lines.append('')
-            lines.append('Права:')
-            for perm in perms:
+                rows.append([InlineKeyboardButton(text=f"👥 {role.title} ({assigned})", callback_data=f"nav:admin_role:{role.key}")])
+            for perm in perms[:8]:
                 linked = int(await session.scalar(select(func.count()).select_from(BcRolePermission).where(BcRolePermission.permission_code == perm.code)) or 0)
-                lines.append(f"• {perm.code} | roles={linked}")
-            await message.answer('\n'.join(lines), reply_markup=ik_admin_main())
+                rows.append([InlineKeyboardButton(text=f"🔐 {perm.code} ({linked})", callback_data=f"nav:admin_perm:{perm.code}")])
+            rows.append([InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin')])
+            kb = InlineKeyboardMarkup(inline_keyboard=rows)
+            lines = [h('🔐 Права'), f'Ролей: {len(roles)}', f'Прав: {len(perms)}', '', 'Управляйте доступами из одного раздела.']
+            await message.answer('\n'.join(lines), reply_markup=kb)
             return True
         if section == 'logs':
             rows = (await session.scalars(select(BcAuditLog).order_by(BcAuditLog.created_at.desc()).limit(15))).all()
@@ -617,12 +665,18 @@ async def render_admin_section_v2(message: Message, section: str) -> bool:
             return True
         if section == 'media':
             rows = (await session.scalars(select(BcMedia).order_by(BcMedia.created_at.desc()).limit(12))).all()
-            lines = [h('🖼 Медиа'), 'Последние медиа-объекты:']
-            if not rows:
-                lines.append('• Медиа пока не загружены.')
-            for media in rows:
-                lines.append(f"• #{media.id} | {media.kind} | {media.title or 'без названия'} | active={int(media.is_active)}")
-            await message.answer('\n'.join(lines), reply_markup=ik_admin_main())
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text='➕ Добавить медиа', callback_data='act:admin:media:create')],
+                    *[
+                        [InlineKeyboardButton(text=f"🖼 #{media.id} {media.title or media.kind}", callback_data=f"nav:admin_media:{media.id}")]
+                        for media in rows
+                    ],
+                    [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin')],
+                ]
+            )
+            lines = [h('🖼 Медиа'), f'Последних объектов: {len(rows)}', '', 'Откройте запись для правки URL, file_id и статуса.']
+            await message.answer('\n'.join(lines), reply_markup=kb)
             return True
     return False
 
@@ -797,6 +851,7 @@ async def screen_admin_chest(message: Message, chest_key: str) -> None:
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text='✏️ Редактировать', callback_data=f'act:admin:chest:edit:{chest.key}')],
+            [InlineKeyboardButton(text='🎯 Дроп-таблица', callback_data=f'act:admin:chest:drops:edit:{chest.key}')],
             [InlineKeyboardButton(text='🗑 Удалить', callback_data=f'act:admin:chest:delete:{chest.key}')],
             [InlineKeyboardButton(text='🔙 К сундукам', callback_data='nav:admin:chests')],
         ]
@@ -876,10 +931,328 @@ async def screen_admin_rp_action(message: Message, action_key: str) -> None:
 
 async def screen_admin_section(message: Message, section: str) -> None:
     await message.answer(
-        f"{h('🛠 Админ-панель')}\nРаздел `{section}` пока не подключён к детальному экрану.",
+        f"{h('🛠 Админ-панель')}\nРаздел `{section}` не найден.",
         parse_mode='Markdown',
         reply_markup=ik_admin_main(),
     )
+
+
+def admin_parse_bool(raw: str) -> bool:
+    value = raw.strip().lower()
+    if value in {'1', 'true', 'yes', 'y', 'on', 'да'}:
+        return True
+    if value in {'0', 'false', 'no', 'n', 'off', 'нет'}:
+        return False
+    raise ValueError('bool')
+
+
+def admin_parse_optional_int(raw: str) -> int | None:
+    value = raw.strip()
+    if value in {'', '-'}:
+        return None
+    return int(value)
+
+
+def admin_parse_optional_datetime(raw: str) -> datetime | None:
+    value = raw.strip()
+    if value in {'', '-'}:
+        return None
+    normalized = value.replace(' ', 'T')
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def admin_parse_chest_drops(raw: str) -> list[tuple[str, float, int, int]]:
+    drops: list[tuple[str, float, int, int]] = []
+    for chunk in [item.strip() for item in raw.split(',') if item.strip()]:
+        rarity_key, encoded = [part.strip() for part in chunk.split('=', maxsplit=1)]
+        parts = [part.strip() for part in encoded.split(':')]
+        weight = float(parts[0])
+        min_count = int(parts[1]) if len(parts) > 1 and parts[1] else 1
+        max_count = int(parts[2]) if len(parts) > 2 and parts[2] else min_count
+        if min_count <= 0 or max_count <= 0 or max_count < min_count:
+            raise ValueError('drops')
+        drops.append((rarity_key, weight, min_count, max_count))
+    if not drops:
+        raise ValueError('drops')
+    return drops
+
+
+def admin_build_shop_payload(payload_type: str, payload_ref: str, payload_value: str) -> dict[str, object]:
+    payload_type = payload_type.strip()
+    payload_ref = payload_ref.strip()
+    payload_value = payload_value.strip()
+    if payload_type == 'booster':
+        return {'type': 'booster', 'booster_key': payload_ref, 'amount': int(payload_value or 1)}
+    if payload_type == 'activate_booster':
+        return {'type': 'activate_booster', 'booster_key': payload_ref, 'stacks': int(payload_value or 1)}
+    if payload_type == 'premium':
+        return {'type': 'premium', 'days': int(payload_ref or payload_value or 30)}
+    if payload_type == 'currency_exchange':
+        frm, to = [part.strip() for part in payload_ref.split(':', maxsplit=1)]
+        return {'type': 'currency_exchange', 'from': frm, 'to': to, 'amount': int(payload_value or 0)}
+    if payload_type == 'custom':
+        return {'type': 'custom', 'ref': payload_ref, 'value': payload_value}
+    raise ValueError('payload')
+
+
+async def screen_admin_shop_category(message: Message, category_key: str) -> None:
+    if message.from_user is None or not is_admin_id(message.from_user.id):
+        await message.answer('Доступ запрещён.', reply_markup=user_menu(message.from_user.id if message.from_user else None))
+        return
+    async with SessionLocal() as session:
+        category = await session.get(BcShopCategory, category_key)
+        if category is None:
+            await message.answer('Категория магазина не найдена.', reply_markup=user_menu(message.from_user.id))
+            return
+        items_count = int(
+            await session.scalar(select(func.count()).select_from(BcShopItem).where(BcShopItem.category_key == category.key)) or 0
+        )
+    text = '\n'.join(
+        [
+            h('🛒 Категория магазина'),
+            f"Key: {category.key}",
+            f"Название: {category.emoji} {category.title}",
+            f"Сортировка: {category.sort}",
+            f"Активна: {'да' if category.is_active else 'нет'}",
+            f"Товаров внутри: {items_count}",
+        ]
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text='➕ Товар в категорию', callback_data=f'act:admin:shop_item:create:{category.key}')],
+            [InlineKeyboardButton(text='✏️ Редактировать', callback_data=f'act:admin:shop_category:edit:{category.key}')],
+            [InlineKeyboardButton(text='🗑 Удалить', callback_data=f'act:admin:shop_category:delete:{category.key}')],
+            [InlineKeyboardButton(text='🔙 К магазину', callback_data='nav:admin:shop')],
+        ]
+    )
+    await message.answer(text, reply_markup=kb)
+
+
+async def screen_admin_shop_item(message: Message, item_id: int) -> None:
+    if message.from_user is None or not is_admin_id(message.from_user.id):
+        await message.answer('Доступ запрещён.', reply_markup=user_menu(message.from_user.id if message.from_user else None))
+        return
+    async with SessionLocal() as session:
+        item = await session.get(BcShopItem, item_id)
+        if item is None:
+            await message.answer('Товар не найден.', reply_markup=user_menu(message.from_user.id))
+            return
+    payload = dict(item.payload or {})
+    text = '\n'.join(
+        [
+            h('🛍 Товар магазина'),
+            f"ID: {item.id}",
+            f"Категория: {item.category_key}",
+            f"Key: {item.key}",
+            f"Название: {item.title}",
+            f"Описание: {item.description or '—'}",
+            f"Цена coins: {item.price_coins if item.price_coins is not None else '-'}",
+            f"Цена stars: {item.price_stars if item.price_stars is not None else '-'}",
+            f"Длительность: {item.duration_seconds if item.duration_seconds is not None else '-'}",
+            f"Payload: {payload}",
+            f"Активен: {'да' if item.is_active else 'нет'}",
+            f"Сортировка: {item.sort}",
+        ]
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text='✏️ Редактировать', callback_data=f'act:admin:shop_item:edit:{item.id}')],
+            [InlineKeyboardButton(text='🔴 Отключить' if item.is_active else '🟢 Включить', callback_data=f'act:admin:shop_item:toggle:{item.id}')],
+            [InlineKeyboardButton(text='🗑 Удалить', callback_data=f'act:admin:shop_item:delete:{item.id}')],
+            [InlineKeyboardButton(text='🔙 К магазину', callback_data='nav:admin:shop')],
+        ]
+    )
+    await message.answer(text, reply_markup=kb)
+
+
+async def screen_admin_task(message: Message, task_key: str) -> None:
+    if message.from_user is None or not is_admin_id(message.from_user.id):
+        await message.answer('Доступ запрещён.', reply_markup=user_menu(message.from_user.id if message.from_user else None))
+        return
+    async with SessionLocal() as session:
+        task = await session.get(BcTask, task_key)
+        if task is None:
+            await message.answer('Задание не найдено.', reply_markup=user_menu(message.from_user.id))
+            return
+        active_users = int(await session.scalar(select(func.count()).select_from(User)) or 0)
+    reward = dict(task.reward or {})
+    config = dict(task.config or {})
+    text = '\n'.join(
+        [
+            h('📜 Задание'),
+            f"Key: {task.key}",
+            f"Тип: {task.kind}",
+            f"Название: {task.title}",
+            f"Описание: {task.description or '—'}",
+            f"Цель: {task.target}",
+            f"Counter: {config.get('counter') or '-'}",
+            f"Награда: coins={int(reward.get('coins') or 0)}, stars={int(reward.get('stars') or 0)}, points={int(reward.get('points') or 0)}",
+            f"Активно: {'да' if task.is_active else 'нет'}",
+            f"Сортировка: {task.sort}",
+            f"Пользователей в системе: {active_users}",
+        ]
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text='✏️ Редактировать', callback_data=f'act:admin:task:edit:{task.key}')],
+            [InlineKeyboardButton(text='🗑 Удалить', callback_data=f'act:admin:task:delete:{task.key}')],
+            [InlineKeyboardButton(text='🔙 К заданиям', callback_data='nav:admin:tasks')],
+        ]
+    )
+    await message.answer(text, reply_markup=kb)
+
+
+async def screen_admin_event(message: Message, event_key: str) -> None:
+    if message.from_user is None or not is_admin_id(message.from_user.id):
+        await message.answer('Доступ запрещён.', reply_markup=user_menu(message.from_user.id if message.from_user else None))
+        return
+    async with SessionLocal() as session:
+        event = await session.scalar(select(BcEvent).where(BcEvent.key == event_key))
+        if event is None:
+            await message.answer('Ивент не найден.', reply_markup=user_menu(message.from_user.id))
+            return
+        cards_count = int(await session.scalar(select(func.count()).select_from(BcCard).where(BcCard.event_id == event.id)) or 0)
+    starts_at = event.starts_at.isoformat(timespec='minutes') if event.starts_at else '-'
+    ends_at = event.ends_at.isoformat(timespec='minutes') if event.ends_at else '-'
+    text = '\n'.join(
+        [
+            h('🎉 Ивент'),
+            f"Key: {event.key}",
+            f"Название: {event.title}",
+            f"Описание: {event.description or '—'}",
+            f"Старт: {starts_at}",
+            f"Финиш: {ends_at}",
+            f"Активен: {'да' if event.is_active else 'нет'}",
+            f"Карточек привязано: {cards_count}",
+        ]
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text='✏️ Редактировать', callback_data=f'act:admin:event:edit:{event.key}')],
+            [InlineKeyboardButton(text='🗑 Удалить', callback_data=f'act:admin:event:delete:{event.key}')],
+            [InlineKeyboardButton(text='🔙 К ивентам', callback_data='nav:admin:events')],
+        ]
+    )
+    await message.answer(text, reply_markup=kb)
+
+
+async def screen_admin_role(message: Message, role_key: str) -> None:
+    if message.from_user is None or not is_admin_id(message.from_user.id):
+        await message.answer('Доступ запрещён.', reply_markup=user_menu(message.from_user.id if message.from_user else None))
+        return
+    async with SessionLocal() as session:
+        role = await session.get(BcRole, role_key)
+        if role is None:
+            await message.answer('Роль не найдена.', reply_markup=user_menu(message.from_user.id))
+            return
+        user_ids = (
+            await session.scalars(select(BcUserRole.user_id).where(BcUserRole.role_key == role.key).order_by(BcUserRole.granted_at.desc()).limit(8))
+        ).all()
+        permission_codes = (
+            await session.scalars(
+                select(BcRolePermission.permission_code).where(BcRolePermission.role_key == role.key).order_by(BcRolePermission.permission_code)
+            )
+        ).all()
+    lines = [
+        h('🔐 Роль'),
+        f"Key: {role.key}",
+        f"Название: {role.title}",
+        f"Пользователей: {len(user_ids)}",
+        f"Права: {len(permission_codes)}",
+        '',
+        'Последние user_id:',
+    ]
+    if not user_ids:
+        lines.append('• Никому не выдана.')
+    for user_id in user_ids:
+        lines.append(f"• {user_id}")
+    lines.append('')
+    lines.append('Привязанные права:')
+    if not permission_codes:
+        lines.append('• Пока пусто.')
+    for code in permission_codes[:10]:
+        lines.append(f"• {code}")
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text='✏️ Редактировать', callback_data=f'act:admin:role:edit:{role.key}')],
+            [InlineKeyboardButton(text='👤 Выдать/снять у пользователя', callback_data='act:admin:role:grant:start')],
+            [InlineKeyboardButton(text='🔗 Привязать/снять право', callback_data='act:admin:role:link_permission:start')],
+            [InlineKeyboardButton(text='🗑 Удалить', callback_data=f'act:admin:role:delete:{role.key}')],
+            [InlineKeyboardButton(text='🔙 К ролям и правам', callback_data='nav:admin:permissions')],
+        ]
+    )
+    await message.answer('\n'.join(lines), reply_markup=kb)
+
+
+async def screen_admin_permission(message: Message, permission_code: str) -> None:
+    if message.from_user is None or not is_admin_id(message.from_user.id):
+        await message.answer('Доступ запрещён.', reply_markup=user_menu(message.from_user.id if message.from_user else None))
+        return
+    async with SessionLocal() as session:
+        permission = await session.get(BcPermission, permission_code)
+        if permission is None:
+            await message.answer('Право не найдено.', reply_markup=user_menu(message.from_user.id))
+            return
+        role_keys = (
+            await session.scalars(
+                select(BcRolePermission.role_key).where(BcRolePermission.permission_code == permission.code).order_by(BcRolePermission.role_key)
+            )
+        ).all()
+    lines = [
+        h('🔐 Право'),
+        f"Code: {permission.code}",
+        f"Название: {permission.title}",
+        f"Ролей с доступом: {len(role_keys)}",
+        '',
+        'Роли:',
+    ]
+    if not role_keys:
+        lines.append('• Ни одна роль не связана.')
+    for role_key in role_keys[:12]:
+        lines.append(f"• {role_key}")
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text='✏️ Редактировать', callback_data=f'act:admin:permission:edit:{permission.code}')],
+            [InlineKeyboardButton(text='🗑 Удалить', callback_data=f'act:admin:permission:delete:{permission.code}')],
+            [InlineKeyboardButton(text='🔙 К ролям и правам', callback_data='nav:admin:permissions')],
+        ]
+    )
+    await message.answer('\n'.join(lines), reply_markup=kb)
+
+
+async def screen_admin_media(message: Message, media_id: int) -> None:
+    if message.from_user is None or not is_admin_id(message.from_user.id):
+        await message.answer('Доступ запрещён.', reply_markup=user_menu(message.from_user.id if message.from_user else None))
+        return
+    async with SessionLocal() as session:
+        media = await session.get(BcMedia, media_id)
+        if media is None:
+            await message.answer('Медиа не найдено.', reply_markup=user_menu(message.from_user.id))
+            return
+    text = '\n'.join(
+        [
+            h('🖼 Медиа'),
+            f"ID: {media.id}",
+            f"Тип: {media.kind}",
+            f"Название: {media.title or '—'}",
+            f"File ID: {media.telegram_file_id or '-'}",
+            f"URL: {media.url or '-'}",
+            f"Активно: {'да' if media.is_active else 'нет'}",
+            f"Meta: {dict(media.meta or {})}",
+        ]
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text='✏️ Редактировать', callback_data=f'act:admin:media:edit:{media.id}')],
+            [InlineKeyboardButton(text='🖼 Загрузить файл', callback_data=f'act:admin:media:file:{media.id}')],
+            [InlineKeyboardButton(text='🗑 Удалить', callback_data=f'act:admin:media:delete:{media.id}')],
+            [InlineKeyboardButton(text='🔙 К медиа', callback_data='nav:admin:media')],
+        ]
+    )
+    await message.answer(text, reply_markup=kb)
 
 
 async def render_inventory_screen(message: Message) -> None:
@@ -993,7 +1366,7 @@ async def screen_events(message: Message) -> None:
     if not events:
         await message.answer(f"{h('🎉 Ивенты')}\nСейчас активных событий нет.", reply_markup=ik_shop_categories())
         return
-    lines = [h("🎉 Ивенты"), "Активные события и специальные режимы:"]
+    lines = [h("🎉 Ивенты"), f"Активных событий: {len(events)}", ""]
     for event in events[:10]:
         ends = event.ends_at.isoformat(timespec="minutes") if event.ends_at else "без срока"
         lines.append(f"• {event.title}\n{event.description[:120]}\nДо: {ends}")
@@ -1474,6 +1847,27 @@ async def on_nav(callback: CallbackQuery) -> None:
         return
     if screen == 'admin_rpact' and arg:
         await screen_admin_rp_action(msg, arg)
+        return
+    if screen == 'admin_shopcat' and arg:
+        await screen_admin_shop_category(msg, arg)
+        return
+    if screen == 'admin_shopitem' and arg:
+        await screen_admin_shop_item(msg, int(arg))
+        return
+    if screen == 'admin_task' and arg:
+        await screen_admin_task(msg, arg)
+        return
+    if screen == 'admin_event' and arg:
+        await screen_admin_event(msg, arg)
+        return
+    if screen == 'admin_role' and arg:
+        await screen_admin_role(msg, arg)
+        return
+    if screen == 'admin_perm' and arg:
+        await screen_admin_permission(msg, arg)
+        return
+    if screen == 'admin_media' and arg:
+        await screen_admin_media(msg, int(arg))
         return
     if screen == 'market_buy':
         await render_market_list(msg, 'buy')
@@ -2053,7 +2447,19 @@ async def on_action(callback: CallbackQuery) -> None:
                 return
             chest_key = action.split(':', maxsplit=4)[4]
             await service.set_input_state(callback.from_user.id, 'admin_chest_form', {'mode': 'edit', 'key': chest_key})
-            await respond(f"{h('📦 Редактировать сундук')}\nКлюч: `{chest_key}`\nОтправьте строкой:\n`Название|эмодзи|описание|price_coins|price_stars|open_count|active(0/1)`\nДроп-таблица редактируется отдельной кнопкой (будет добавлено).", parse_mode='Markdown', reply_markup=main_menu())
+            await respond(f"{h('📦 Редактировать сундук')}\nКлюч: `{chest_key}`\nОтправьте строкой:\n`Название|эмодзи|описание|price_coins|price_stars|open_count|active(0/1)`", parse_mode='Markdown', reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:chest:drops:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            chest_key = action.split(':', maxsplit=5)[5]
+            await service.set_input_state(callback.from_user.id, 'admin_chest_drops_form', {'key': chest_key})
+            await respond(
+                f"{h('🎯 Дроп сундука')}\nКлюч: `{chest_key}`\nОтправьте строкой:\n`rarity=weight:min:max,rarity=weight:min:max`\n\nПример:\n`common=90:1:1,rare=9:1:1,epic=1:1:1`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
             return
         if action.startswith('act:admin:chest:delete:'):
             if not is_admin_id(callback.from_user.id):
@@ -2066,6 +2472,289 @@ async def on_action(callback: CallbackQuery) -> None:
                 return
             await session.delete(c)
             await respond('Сундук удалён.', reply_markup=main_menu())
+            return
+        if action == 'act:admin:shop_category:create':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_shop_category_form', {'mode': 'create'})
+            await respond(
+                f"{h('🛒 Категория магазина')}\nОтправьте строкой:\n`key|Название|эмодзи|sort|active(0/1)`\n\nПример:\n`seasonal|Сезонное|🧨|70|1`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:shop_category:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            category_key = action.split(':', maxsplit=4)[4]
+            await service.set_input_state(callback.from_user.id, 'admin_shop_category_form', {'mode': 'edit', 'key': category_key})
+            await respond(
+                f"{h('🛒 Категория магазина')}\nКлюч: `{category_key}`\nОтправьте строкой:\n`Название|эмодзи|sort|active(0/1)`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:shop_category:delete:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            category_key = action.split(':', maxsplit=4)[4]
+            category = await session.get(BcShopCategory, category_key)
+            if category is None:
+                await respond('Категория не найдена.', reply_markup=main_menu())
+                return
+            await session.delete(category)
+            await respond('Категория магазина удалена.', reply_markup=main_menu())
+            return
+        if action == 'act:admin:shop_item:create':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_shop_item_form', {'mode': 'create'})
+            await respond(
+                f"{h('🛍 Товар магазина')}\nОтправьте строкой:\n`category_key|key|Название|описание|price_coins|price_stars|duration_seconds|payload_type|payload_ref|payload_value|sort|active(0/1)`\n\nPayload types: `booster`, `activate_booster`, `premium`, `currency_exchange`, `custom`\nПример:\n`boosters|luck_pack|Удача|Бустер удачи|250||0|booster|luck|1|10|1`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:shop_item:create:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            category_key = action.split(':', maxsplit=4)[4]
+            await service.set_input_state(callback.from_user.id, 'admin_shop_item_form', {'mode': 'create', 'category_key': category_key})
+            await respond(
+                f"{h('🛍 Товар магазина')}\nКатегория: `{category_key}`\nОтправьте строкой:\n`key|Название|описание|price_coins|price_stars|duration_seconds|payload_type|payload_ref|payload_value|sort|active(0/1)`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:shop_item:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            item_id = int(action.split(':', maxsplit=4)[4])
+            await service.set_input_state(callback.from_user.id, 'admin_shop_item_form', {'mode': 'edit', 'id': item_id})
+            await respond(
+                f"{h('🛍 Товар магазина')}\nID: `{item_id}`\nОтправьте строкой:\n`category_key|key|Название|описание|price_coins|price_stars|duration_seconds|payload_type|payload_ref|payload_value|sort|active(0/1)`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:shop_item:toggle:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            item_id = int(action.split(':', maxsplit=5)[4])
+            item = await session.get(BcShopItem, item_id)
+            if item is None:
+                await respond('Товар не найден.', reply_markup=main_menu())
+                return
+            item.is_active = not item.is_active
+            await respond('Статус товара обновлён.', reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:shop_item:delete:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            item_id = int(action.split(':', maxsplit=4)[4])
+            item = await session.get(BcShopItem, item_id)
+            if item is None:
+                await respond('Товар не найден.', reply_markup=main_menu())
+                return
+            await session.delete(item)
+            await respond('Товар удалён.', reply_markup=main_menu())
+            return
+        if action == 'act:admin:task:create':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_task_form', {'mode': 'create'})
+            await respond(
+                f"{h('📜 Задание')}\nОтправьте строкой:\n`key|kind|Название|описание|target|coins|stars|points|counter|sort|active(0/1)`\n\nПример:\n`daily_cards|daily|Получи 5 карт|Собери карты сегодня|5|250|1|15|get_cards|10|1`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:task:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            task_key = action.split(':', maxsplit=4)[4]
+            await service.set_input_state(callback.from_user.id, 'admin_task_form', {'mode': 'edit', 'key': task_key})
+            await respond(
+                f"{h('📜 Задание')}\nКлюч: `{task_key}`\nОтправьте строкой:\n`kind|Название|описание|target|coins|stars|points|counter|sort|active(0/1)`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:task:delete:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            task_key = action.split(':', maxsplit=4)[4]
+            task = await session.get(BcTask, task_key)
+            if task is None:
+                await respond('Задание не найдено.', reply_markup=main_menu())
+                return
+            await session.delete(task)
+            await respond('Задание удалено.', reply_markup=main_menu())
+            return
+        if action == 'act:admin:event:create':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_event_form', {'mode': 'create'})
+            await respond(
+                f"{h('🎉 Ивент')}\nОтправьте строкой:\n`key|Название|описание|starts_at|ends_at|active(0/1)`\n\nИспользуйте ISO формат времени или `-`.\nПример:\n`spring|Весенний дроп|Карты и бонусы сезона|2026-04-10T12:00|2026-04-20T23:59|1`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:event:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            event_key = action.split(':', maxsplit=4)[4]
+            await service.set_input_state(callback.from_user.id, 'admin_event_form', {'mode': 'edit', 'key': event_key})
+            await respond(
+                f"{h('🎉 Ивент')}\nКлюч: `{event_key}`\nОтправьте строкой:\n`Название|описание|starts_at|ends_at|active(0/1)`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:event:delete:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            event_key = action.split(':', maxsplit=4)[4]
+            event = await session.scalar(select(BcEvent).where(BcEvent.key == event_key))
+            if event is None:
+                await respond('Ивент не найден.', reply_markup=main_menu())
+                return
+            await session.delete(event)
+            await respond('Ивент удалён.', reply_markup=main_menu())
+            return
+        if action == 'act:admin:role:create':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_role_form', {'mode': 'create'})
+            await respond(f"{h('🔐 Роль')}\nОтправьте строкой:\n`key|Название`", parse_mode='Markdown', reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:role:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            role_key = action.split(':', maxsplit=4)[4]
+            await service.set_input_state(callback.from_user.id, 'admin_role_form', {'mode': 'edit', 'key': role_key})
+            await respond(f"{h('🔐 Роль')}\nКлюч: `{role_key}`\nОтправьте новое название роли.", parse_mode='Markdown', reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:role:delete:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            role_key = action.split(':', maxsplit=4)[4]
+            role = await session.get(BcRole, role_key)
+            if role is None:
+                await respond('Роль не найдена.', reply_markup=main_menu())
+                return
+            await session.delete(role)
+            await respond('Роль удалена.', reply_markup=main_menu())
+            return
+        if action == 'act:admin:permission:create':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_permission_form', {'mode': 'create'})
+            await respond(f"{h('🔐 Право')}\nОтправьте строкой:\n`code|Название`", parse_mode='Markdown', reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:permission:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            permission_code = action.split(':', maxsplit=4)[4]
+            await service.set_input_state(callback.from_user.id, 'admin_permission_form', {'mode': 'edit', 'code': permission_code})
+            await respond(f"{h('🔐 Право')}\nКод: `{permission_code}`\nОтправьте новое название права.", parse_mode='Markdown', reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:permission:delete:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            permission_code = action.split(':', maxsplit=4)[4]
+            permission = await session.get(BcPermission, permission_code)
+            if permission is None:
+                await respond('Право не найдено.', reply_markup=main_menu())
+                return
+            await session.delete(permission)
+            await respond('Право удалено.', reply_markup=main_menu())
+            return
+        if action == 'act:admin:role:grant:start':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_role_grant_form', {})
+            await respond(
+                f"{h('👤 Выдача роли')}\nОтправьте строкой:\n`user_id|role_key|grant_or_revoke`\n\nПример:\n`123456789|moderator|grant`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action == 'act:admin:role:link_permission:start':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_role_permission_form', {})
+            await respond(
+                f"{h('🔗 Привязка права')}\nОтправьте строкой:\n`role_key|permission_code|grant_or_revoke`\n\nПример:\n`moderator|logs.view|grant`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action == 'act:admin:media:create':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_media_form', {'mode': 'create'})
+            await respond(
+                f"{h('🖼 Медиа')}\nОтправьте строкой:\n`kind|Название|url_or_-|active(0/1)`\n\nПосле создания можно отдельно загрузить Telegram file_id через кнопку.",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:media:edit:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            media_id = int(action.split(':', maxsplit=4)[4])
+            await service.set_input_state(callback.from_user.id, 'admin_media_form', {'mode': 'edit', 'id': media_id})
+            await respond(
+                f"{h('🖼 Медиа')}\nID: `{media_id}`\nОтправьте строкой:\n`kind|Название|url_or_-|active(0/1)`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
+            return
+        if action.startswith('act:admin:media:file:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            media_id = int(action.split(':', maxsplit=4)[4])
+            await service.set_input_state(callback.from_user.id, 'admin_media_file_form', {'id': media_id})
+            await respond(f"{h('🖼 Медиа')}\nОтправьте фото. Telegram file_id будет сохранён в запись #{media_id}.", reply_markup=main_menu())
+            return
+        if action.startswith('act:admin:media:delete:'):
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            media_id = int(action.split(':', maxsplit=4)[4])
+            media = await session.get(BcMedia, media_id)
+            if media is None:
+                await respond('Медиа не найдено.', reply_markup=main_menu())
+                return
+            await session.delete(media)
+            await respond('Медиа удалено.', reply_markup=main_menu())
             return
         if action == 'act:admin:user:manage:start':
             if not is_admin_id(callback.from_user.id):
@@ -2293,6 +2982,560 @@ async def on_state_text_input(message: Message) -> None:
             await message.answer(f"{h('💍 Брак')}\n{resp}", reply_markup=menu)
             return
 
+        if state.state == 'admin_rp_category_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            payload = dict(state.payload or {})
+            mode = str(payload.get('mode') or 'create')
+            parts = [part.strip() for part in raw.split('|')]
+            try:
+                if mode == 'create':
+                    if len(parts) != 5:
+                        raise ValueError('format')
+                    key, title, emoji, sort_raw, active_raw = parts
+                    category = BcRPCategory(key=key, title=title, emoji=emoji or '🎭', sort=int(sort_raw), is_active=admin_parse_bool(active_raw))
+                    async with session.begin():
+                        session.add(category)
+                        await service.clear_input_state(message.from_user.id)
+                else:
+                    if len(parts) != 4:
+                        raise ValueError('format')
+                    category = await session.get(BcRPCategory, str(payload.get('key') or ''))
+                    if category is None:
+                        await message.answer('Категория не найдена.', reply_markup=menu)
+                        return
+                    async with session.begin():
+                        category.title = parts[0]
+                        category.emoji = parts[1] or '🎭'
+                        category.sort = int(parts[2])
+                        category.is_active = admin_parse_bool(parts[3])
+                        await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('🎭 Категория RP')}\nСохранено.", reply_markup=menu)
+                await screen_admin_rp_category(message, category.key)
+            except (ValueError, TypeError):
+                await message.answer('Формат категории RP неверный.', reply_markup=menu)
+            return
+
+        if state.state == 'admin_rp_action_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            payload = dict(state.payload or {})
+            mode = str(payload.get('mode') or 'create')
+            parts = [part.strip() for part in raw.split('|')]
+            try:
+                if mode == 'create':
+                    if len(parts) != 15:
+                        raise ValueError('format')
+                    key, category_key, title, emoji, requires_target_raw, cooldown_raw, coins_raw, stars_raw, points_raw, media_raw, private_raw, group_raw, sort_raw, active_raw, templates_raw = parts
+                    if await session.get(BcRPCategory, category_key) is None:
+                        raise ValueError('category')
+                    rp_action = BcRPAction(
+                        key=key,
+                        category_key=category_key,
+                        title=title,
+                        emoji=emoji or '✨',
+                        requires_target=admin_parse_bool(requires_target_raw),
+                        cooldown_seconds=int(cooldown_raw),
+                        reward={'coins': int(coins_raw or 0), 'stars': int(stars_raw or 0), 'points': int(points_raw or 0)},
+                        templates=[item.strip() for item in templates_raw.split(';;') if item.strip()],
+                        media_id=admin_parse_optional_int(media_raw),
+                        restrictions={},
+                        allowed_scopes={'private': admin_parse_bool(private_raw), 'group': admin_parse_bool(group_raw)},
+                        is_active=admin_parse_bool(active_raw),
+                        sort=int(sort_raw),
+                    )
+                    async with session.begin():
+                        session.add(rp_action)
+                        await service.clear_input_state(message.from_user.id)
+                else:
+                    if len(parts) != 14:
+                        raise ValueError('format')
+                    rp_action = await session.get(BcRPAction, str(payload.get('key') or ''))
+                    if rp_action is None:
+                        await message.answer('RP-действие не найдено.', reply_markup=menu)
+                        return
+                    if await session.get(BcRPCategory, parts[0]) is None:
+                        raise ValueError('category')
+                    async with session.begin():
+                        rp_action.category_key = parts[0]
+                        rp_action.title = parts[1]
+                        rp_action.emoji = parts[2] or '✨'
+                        rp_action.requires_target = admin_parse_bool(parts[3])
+                        rp_action.cooldown_seconds = int(parts[4])
+                        rp_action.reward = {'coins': int(parts[5] or 0), 'stars': int(parts[6] or 0), 'points': int(parts[7] or 0)}
+                        rp_action.media_id = admin_parse_optional_int(parts[8])
+                        rp_action.allowed_scopes = {'private': admin_parse_bool(parts[9]), 'group': admin_parse_bool(parts[10])}
+                        rp_action.sort = int(parts[11])
+                        rp_action.is_active = admin_parse_bool(parts[12])
+                        rp_action.templates = [item.strip() for item in parts[13].split(';;') if item.strip()]
+                        await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('🎭 RP-действие')}\nСохранено.", reply_markup=menu)
+                await screen_admin_rp_action(message, rp_action.key)
+            except (ValueError, TypeError):
+                await message.answer('Формат RP-действия неверный.', reply_markup=menu)
+            return
+
+        if state.state == 'admin_rarity_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            payload = dict(state.payload or {})
+            mode = str(payload.get('mode') or 'create')
+            parts = [part.strip() for part in raw.split('|')]
+            try:
+                if mode == 'create':
+                    if len(parts) != 10:
+                        raise ValueError('format')
+                    key, title, emoji, chance_raw, color, points_mult_raw, coins_mult_raw, drop_mode, in_chests_raw, in_shop_raw = parts
+                    rarity = BcRarity(key=key, title=title, emoji=emoji or '✨', chance=float(chance_raw), color=color or '#A0A0A0', points_mult=float(points_mult_raw), coins_mult=float(coins_mult_raw), available_in_chests=admin_parse_bool(in_chests_raw), available_in_shop=admin_parse_bool(in_shop_raw), drop_mode=drop_mode or 'normal', sort=100, meta={}, is_active=True)
+                    async with session.begin():
+                        session.add(rarity)
+                        await service.clear_input_state(message.from_user.id)
+                else:
+                    if len(parts) != 10:
+                        raise ValueError('format')
+                    rarity = await session.get(BcRarity, str(payload.get('key') or ''))
+                    if rarity is None:
+                        await message.answer('Редкость не найдена.', reply_markup=menu)
+                        return
+                    async with session.begin():
+                        rarity.title = parts[0]
+                        rarity.emoji = parts[1] or '✨'
+                        rarity.chance = float(parts[2])
+                        rarity.color = parts[3] or '#A0A0A0'
+                        rarity.points_mult = float(parts[4])
+                        rarity.coins_mult = float(parts[5])
+                        rarity.drop_mode = parts[6] or 'normal'
+                        rarity.available_in_chests = admin_parse_bool(parts[7])
+                        rarity.available_in_shop = admin_parse_bool(parts[8])
+                        rarity.is_active = admin_parse_bool(parts[9])
+                        await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('💎 Редкость')}\nСохранено.", reply_markup=menu)
+                await screen_admin_rarity(message, rarity.key)
+            except (ValueError, TypeError):
+                await message.answer('Формат редкости неверный.', reply_markup=menu)
+            return
+
+        if state.state == 'admin_booster_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            payload = dict(state.payload or {})
+            mode = str(payload.get('mode') or 'create')
+            parts = [part.strip() for part in raw.split('|')]
+            try:
+                if mode == 'create':
+                    if len(parts) != 10:
+                        raise ValueError('format')
+                    key, title, emoji, effect_type, power_raw, price_coins_raw, price_stars_raw, duration_raw, max_stack_raw, available_raw = parts
+                    booster = BcBooster(key=key, title=title, emoji=emoji or '⚡', effect_type=effect_type, effect_power=float(power_raw), price_coins=admin_parse_optional_int(price_coins_raw), price_stars=admin_parse_optional_int(price_stars_raw), duration_seconds=int(duration_raw or 0), stackable=True, max_stack=int(max_stack_raw or 1), purchase_limit=None, is_available=admin_parse_bool(available_raw), event_id=None, meta={})
+                    async with session.begin():
+                        session.add(booster)
+                        await service.clear_input_state(message.from_user.id)
+                else:
+                    if len(parts) != 9:
+                        raise ValueError('format')
+                    booster = await session.get(BcBooster, str(payload.get('key') or ''))
+                    if booster is None:
+                        await message.answer('Бустер не найден.', reply_markup=menu)
+                        return
+                    async with session.begin():
+                        booster.title = parts[0]
+                        booster.emoji = parts[1] or '⚡'
+                        booster.effect_type = parts[2]
+                        booster.effect_power = float(parts[3])
+                        booster.price_coins = admin_parse_optional_int(parts[4])
+                        booster.price_stars = admin_parse_optional_int(parts[5])
+                        booster.duration_seconds = int(parts[6] or 0)
+                        booster.max_stack = int(parts[7] or 1)
+                        booster.is_available = admin_parse_bool(parts[8])
+                        await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('⚡ Бустер')}\nСохранено.", reply_markup=menu)
+                await screen_admin_booster(message, booster.key)
+            except (ValueError, TypeError):
+                await message.answer('Формат бустера неверный.', reply_markup=menu)
+            return
+
+        if state.state == 'admin_chest_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            payload = dict(state.payload or {})
+            mode = str(payload.get('mode') or 'create')
+            parts = [part.strip() for part in raw.split('|')]
+            try:
+                if mode == 'create':
+                    if len(parts) != 8:
+                        raise ValueError('format')
+                    key, title, emoji, description, price_coins_raw, price_stars_raw, open_count_raw, drops_raw = parts
+                    drops = admin_parse_chest_drops(drops_raw)
+                    chest = BcChest(key=key, title=title, emoji=emoji or '📦', description=description, price_coins=admin_parse_optional_int(price_coins_raw), price_stars=admin_parse_optional_int(price_stars_raw), open_count=int(open_count_raw or 1), guarantees={}, limits={}, media_id=None, access={}, is_active=True, sort=100)
+                    async with session.begin():
+                        session.add(chest)
+                        await session.flush()
+                        for rarity_key, weight, min_count, max_count in drops:
+                            session.add(BcChestDrop(chest_key=chest.key, rarity_key=rarity_key, weight=weight, min_count=min_count, max_count=max_count, meta={}))
+                        await service.clear_input_state(message.from_user.id)
+                else:
+                    if len(parts) != 7:
+                        raise ValueError('format')
+                    chest = await session.get(BcChest, str(payload.get('key') or ''))
+                    if chest is None:
+                        await message.answer('Сундук не найден.', reply_markup=menu)
+                        return
+                    async with session.begin():
+                        chest.title = parts[0]
+                        chest.emoji = parts[1] or '📦'
+                        chest.description = parts[2]
+                        chest.price_coins = admin_parse_optional_int(parts[3])
+                        chest.price_stars = admin_parse_optional_int(parts[4])
+                        chest.open_count = int(parts[5] or 1)
+                        chest.is_active = admin_parse_bool(parts[6])
+                        await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('📦 Сундук')}\nСохранено.", reply_markup=menu)
+                await screen_admin_chest(message, chest.key)
+            except (ValueError, TypeError):
+                await message.answer('Формат сундука неверный.', reply_markup=menu)
+            return
+
+        if state.state == 'admin_chest_drops_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            payload = dict(state.payload or {})
+            chest_key = str(payload.get('key') or '')
+            chest = await session.get(BcChest, chest_key)
+            if chest is None:
+                await message.answer('Сундук не найден.', reply_markup=menu)
+                return
+            try:
+                drops = admin_parse_chest_drops(raw)
+                async with session.begin():
+                    existing = (await session.scalars(select(BcChestDrop).where(BcChestDrop.chest_key == chest.key))).all()
+                    for row in existing:
+                        await session.delete(row)
+                    for rarity_key, weight, min_count, max_count in drops:
+                        session.add(BcChestDrop(chest_key=chest.key, rarity_key=rarity_key, weight=weight, min_count=min_count, max_count=max_count, meta={}))
+                    await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('🎯 Дроп сундука')}\nТаблица обновлена.", reply_markup=menu)
+                await screen_admin_chest(message, chest.key)
+            except (ValueError, TypeError):
+                await message.answer('Формат дропа неверный.', reply_markup=menu)
+            return
+
+        if state.state == 'admin_shop_category_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            payload = dict(state.payload or {})
+            mode = str(payload.get('mode') or 'create')
+            parts = [part.strip() for part in raw.split('|')]
+            try:
+                if mode == 'create':
+                    if len(parts) != 5:
+                        raise ValueError('format')
+                    key, title, emoji, sort_raw, active_raw = parts
+                    category = BcShopCategory(key=key, title=title, emoji=emoji or '🛒', sort=int(sort_raw), is_active=admin_parse_bool(active_raw))
+                    async with session.begin():
+                        session.add(category)
+                        await service.clear_input_state(message.from_user.id)
+                else:
+                    if len(parts) != 4:
+                        raise ValueError('format')
+                    category = await session.get(BcShopCategory, str(payload.get('key') or ''))
+                    if category is None:
+                        await message.answer('Категория не найдена.', reply_markup=menu)
+                        return
+                    async with session.begin():
+                        category.title = parts[0]
+                        category.emoji = parts[1] or '🛒'
+                        category.sort = int(parts[2])
+                        category.is_active = admin_parse_bool(parts[3])
+                        await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('🛒 Категория магазина')}\nСохранено.", reply_markup=menu)
+                await screen_admin_shop_category(message, category.key)
+            except (ValueError, TypeError):
+                await message.answer('Формат категории магазина неверный.', reply_markup=menu)
+            return
+
+        if state.state == 'admin_shop_item_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            payload = dict(state.payload or {})
+            mode = str(payload.get('mode') or 'create')
+            parts = [part.strip() for part in raw.split('|')]
+            try:
+                preset_category = str(payload.get('category_key') or '').strip()
+                if mode == 'create':
+                    if preset_category:
+                        if len(parts) != 11:
+                            raise ValueError('format')
+                        category_key = preset_category
+                        key, title, description, price_coins_raw, price_stars_raw, duration_raw, payload_type, payload_ref, payload_value, sort_raw, active_raw = parts
+                    else:
+                        if len(parts) != 12:
+                            raise ValueError('format')
+                        category_key, key, title, description, price_coins_raw, price_stars_raw, duration_raw, payload_type, payload_ref, payload_value, sort_raw, active_raw = parts
+                    if await session.get(BcShopCategory, category_key) is None:
+                        raise ValueError('category')
+                    item = BcShopItem(category_key=category_key, key=key, title=title, description=description, price_coins=admin_parse_optional_int(price_coins_raw), price_stars=admin_parse_optional_int(price_stars_raw), duration_seconds=admin_parse_optional_int(duration_raw), payload=admin_build_shop_payload(payload_type, payload_ref, payload_value), is_active=admin_parse_bool(active_raw), sort=int(sort_raw))
+                    async with session.begin():
+                        session.add(item)
+                        await service.clear_input_state(message.from_user.id)
+                else:
+                    if len(parts) != 12:
+                        raise ValueError('format')
+                    item = await session.get(BcShopItem, int(payload.get('id') or 0))
+                    if item is None:
+                        await message.answer('Товар не найден.', reply_markup=menu)
+                        return
+                    category_key, key, title, description, price_coins_raw, price_stars_raw, duration_raw, payload_type, payload_ref, payload_value, sort_raw, active_raw = parts
+                    if await session.get(BcShopCategory, category_key) is None:
+                        raise ValueError('category')
+                    async with session.begin():
+                        item.category_key = category_key
+                        item.key = key
+                        item.title = title
+                        item.description = description
+                        item.price_coins = admin_parse_optional_int(price_coins_raw)
+                        item.price_stars = admin_parse_optional_int(price_stars_raw)
+                        item.duration_seconds = admin_parse_optional_int(duration_raw)
+                        item.payload = admin_build_shop_payload(payload_type, payload_ref, payload_value)
+                        item.sort = int(sort_raw)
+                        item.is_active = admin_parse_bool(active_raw)
+                        await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('🛍 Товар магазина')}\nСохранено.", reply_markup=menu)
+                await screen_admin_shop_item(message, item.id)
+            except (ValueError, TypeError):
+                await message.answer('Формат товара магазина неверный.', reply_markup=menu)
+            return
+
+        if state.state == 'admin_task_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            payload = dict(state.payload or {})
+            mode = str(payload.get('mode') or 'create')
+            parts = [part.strip() for part in raw.split('|')]
+            try:
+                if mode == 'create':
+                    if len(parts) != 11:
+                        raise ValueError('format')
+                    key, kind, title, description, target_raw, coins_raw, stars_raw, points_raw, counter_key, sort_raw, active_raw = parts
+                    task = BcTask(key=key, kind=kind, title=title, description=description, target=int(target_raw), reward={'coins': int(coins_raw or 0), 'stars': int(stars_raw or 0), 'points': int(points_raw or 0)}, expires_at=None, check_type='counter', config={'counter': counter_key}, is_active=admin_parse_bool(active_raw), sort=int(sort_raw))
+                    async with session.begin():
+                        session.add(task)
+                        await service.clear_input_state(message.from_user.id)
+                else:
+                    if len(parts) != 10:
+                        raise ValueError('format')
+                    task = await session.get(BcTask, str(payload.get('key') or ''))
+                    if task is None:
+                        await message.answer('Задание не найдено.', reply_markup=menu)
+                        return
+                    async with session.begin():
+                        task.kind = parts[0]
+                        task.title = parts[1]
+                        task.description = parts[2]
+                        task.target = int(parts[3])
+                        task.reward = {'coins': int(parts[4] or 0), 'stars': int(parts[5] or 0), 'points': int(parts[6] or 0)}
+                        task.config = {'counter': parts[7]}
+                        task.sort = int(parts[8])
+                        task.is_active = admin_parse_bool(parts[9])
+                        await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('📜 Задание')}\nСохранено.", reply_markup=menu)
+                await screen_admin_task(message, task.key)
+            except (ValueError, TypeError):
+                await message.answer('Формат задания неверный.', reply_markup=menu)
+            return
+
+        if state.state == 'admin_event_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            payload = dict(state.payload or {})
+            mode = str(payload.get('mode') or 'create')
+            parts = [part.strip() for part in raw.split('|')]
+            try:
+                if mode == 'create':
+                    if len(parts) != 6:
+                        raise ValueError('format')
+                    key, title, description, starts_raw, ends_raw, active_raw = parts
+                    event = BcEvent(key=key, title=title, description=description, starts_at=admin_parse_optional_datetime(starts_raw), ends_at=admin_parse_optional_datetime(ends_raw), config={}, is_active=admin_parse_bool(active_raw))
+                    async with session.begin():
+                        session.add(event)
+                        await service.clear_input_state(message.from_user.id)
+                else:
+                    if len(parts) != 5:
+                        raise ValueError('format')
+                    event = await session.scalar(select(BcEvent).where(BcEvent.key == str(payload.get('key') or '')))
+                    if event is None:
+                        await message.answer('Ивент не найден.', reply_markup=menu)
+                        return
+                    async with session.begin():
+                        event.title = parts[0]
+                        event.description = parts[1]
+                        event.starts_at = admin_parse_optional_datetime(parts[2])
+                        event.ends_at = admin_parse_optional_datetime(parts[3])
+                        event.is_active = admin_parse_bool(parts[4])
+                        await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('🎉 Ивент')}\nСохранено.", reply_markup=menu)
+                await screen_admin_event(message, event.key)
+            except (ValueError, TypeError):
+                await message.answer('Формат ивента неверный.', reply_markup=menu)
+            return
+
+        if state.state == 'admin_role_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            payload = dict(state.payload or {})
+            mode = str(payload.get('mode') or 'create')
+            parts = [part.strip() for part in raw.split('|')]
+            try:
+                if mode == 'create':
+                    if len(parts) != 2:
+                        raise ValueError('format')
+                    role = BcRole(key=parts[0], title=parts[1], meta={})
+                    async with session.begin():
+                        session.add(role)
+                        await service.clear_input_state(message.from_user.id)
+                else:
+                    role = await session.get(BcRole, str(payload.get('key') or ''))
+                    if role is None:
+                        await message.answer('Роль не найдена.', reply_markup=menu)
+                        return
+                    async with session.begin():
+                        role.title = raw
+                        await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('🔐 Роль')}\nСохранено.", reply_markup=menu)
+                await screen_admin_role(message, role.key)
+            except (ValueError, TypeError):
+                await message.answer('Формат роли неверный.', reply_markup=menu)
+            return
+
+        if state.state == 'admin_permission_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            payload = dict(state.payload or {})
+            mode = str(payload.get('mode') or 'create')
+            parts = [part.strip() for part in raw.split('|')]
+            try:
+                if mode == 'create':
+                    if len(parts) != 2:
+                        raise ValueError('format')
+                    permission = BcPermission(code=parts[0], title=parts[1])
+                    async with session.begin():
+                        session.add(permission)
+                        await service.clear_input_state(message.from_user.id)
+                else:
+                    permission = await session.get(BcPermission, str(payload.get('code') or ''))
+                    if permission is None:
+                        await message.answer('Право не найдено.', reply_markup=menu)
+                        return
+                    async with session.begin():
+                        permission.title = raw
+                        await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('🔐 Право')}\nСохранено.", reply_markup=menu)
+                await screen_admin_permission(message, permission.code)
+            except (ValueError, TypeError):
+                await message.answer('Формат права неверный.', reply_markup=menu)
+            return
+
+        if state.state == 'admin_role_grant_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            parts = [part.strip() for part in raw.split('|')]
+            if len(parts) != 3:
+                await message.answer('Формат роли неверный: `user_id|role_key|grant_or_revoke`', parse_mode='Markdown', reply_markup=menu)
+                return
+            try:
+                user_id = int(parts[0])
+                role_key = parts[1]
+                mode = parts[2].lower()
+                if await session.get(BcRole, role_key) is None:
+                    raise ValueError('role')
+                async with session.begin():
+                    row = await session.get(BcUserRole, {'user_id': user_id, 'role_key': role_key})
+                    if mode == 'grant' and row is None:
+                        session.add(BcUserRole(user_id=user_id, role_key=role_key))
+                    elif mode == 'revoke' and row is not None:
+                        await session.delete(row)
+                    else:
+                        raise ValueError('mode')
+                    await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('👤 Выдача роли')}\nОперация выполнена.", reply_markup=menu)
+                await screen_admin_role(message, role_key)
+            except (ValueError, TypeError):
+                await message.answer('Формат выдачи роли неверный.', reply_markup=menu)
+            return
+
+        if state.state == 'admin_role_permission_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            parts = [part.strip() for part in raw.split('|')]
+            if len(parts) != 3:
+                await message.answer('Формат привязки неверный: `role_key|permission_code|grant_or_revoke`', parse_mode='Markdown', reply_markup=menu)
+                return
+            role_key, permission_code, mode = parts[0], parts[1], parts[2].lower()
+            try:
+                if await session.get(BcRole, role_key) is None or await session.get(BcPermission, permission_code) is None:
+                    raise ValueError('link')
+                async with session.begin():
+                    row = await session.get(BcRolePermission, {'role_key': role_key, 'permission_code': permission_code})
+                    if mode == 'grant' and row is None:
+                        session.add(BcRolePermission(role_key=role_key, permission_code=permission_code))
+                    elif mode == 'revoke' and row is not None:
+                        await session.delete(row)
+                    else:
+                        raise ValueError('mode')
+                    await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('🔗 Привязка права')}\nОперация выполнена.", reply_markup=menu)
+                await screen_admin_role(message, role_key)
+            except (ValueError, TypeError):
+                await message.answer('Формат привязки права неверный.', reply_markup=menu)
+            return
+
+        if state.state == 'admin_media_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            payload = dict(state.payload or {})
+            mode = str(payload.get('mode') or 'create')
+            parts = [part.strip() for part in raw.split('|')]
+            try:
+                if len(parts) != 4:
+                    raise ValueError('format')
+                kind, title, url_raw, active_raw = parts
+                if mode == 'create':
+                    media = BcMedia(kind=kind, telegram_file_id=None, url=None if url_raw == '-' else url_raw, title=title, meta={}, is_active=admin_parse_bool(active_raw))
+                    async with session.begin():
+                        session.add(media)
+                        await session.flush()
+                        await service.clear_input_state(message.from_user.id)
+                else:
+                    media = await session.get(BcMedia, int(payload.get('id') or 0))
+                    if media is None:
+                        await message.answer('Медиа не найдено.', reply_markup=menu)
+                        return
+                    async with session.begin():
+                        media.kind = kind
+                        media.title = title
+                        media.url = None if url_raw == '-' else url_raw
+                        media.is_active = admin_parse_bool(active_raw)
+                        await service.clear_input_state(message.from_user.id)
+                await message.answer(f"{h('🖼 Медиа')}\nСохранено.", reply_markup=menu)
+                await screen_admin_media(message, media.id)
+            except (ValueError, TypeError):
+                await message.answer('Формат медиа неверный.', reply_markup=menu)
+            return
+
         if state.state == 'admin_user_manage_form':
             if not is_admin_id(message.from_user.id):
                 await message.answer('Доступ запрещён.', reply_markup=menu)
@@ -2463,4 +3706,20 @@ async def on_photo_input(message: Message) -> None:
             await session.commit()
             await message.answer('Фото карточки обновлено.', reply_markup=menu)
             await screen_admin_card(message, card_id)
+            return
+        if state.state == 'admin_media_file_form':
+            payload = dict(state.payload or {})
+            media_id = int(payload.get('id') or 0)
+            media = await session.get(BcMedia, media_id)
+            if media is None:
+                await service.clear_input_state(message.from_user.id)
+                await session.commit()
+                await message.answer('Медиа не найдено.', reply_markup=menu)
+                return
+            media.kind = 'photo'
+            media.telegram_file_id = file_id
+            await service.clear_input_state(message.from_user.id)
+            await session.commit()
+            await message.answer('Медиа-файл обновлён.', reply_markup=menu)
+            await screen_admin_media(message, media_id)
             return
