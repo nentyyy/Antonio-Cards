@@ -1,45 +1,20 @@
 from __future__ import annotations
 import random
 import re
-from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import urlparse
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
-from app.db.models import BcActiveBooster, BcAuditLog, BcBonusTask, BcBooster, BcCard, BcCardInstance, BcChest, BcChestDrop, BcEvent, BcInputState, BcMedia, BcRarity, BcRPAction, BcRPCategory, BcRPLog, BcShopItem, BcTask, BcTextTemplate, BcUserBonusTask, BcUserRole, BcUserTask, BcUserState, BcUserSettings, BcMarriageProposal, BcMarketLot, Cooldown, Marriage, Setting, User, UserProfile
+from app.domain.membership import MembershipCheckState
+from app.db.models import BcActiveBooster, BcAuditLog, BcBonusTask, BcBooster, BcCard, BcCardInstance, BcChest, BcChestDrop, BcEvent, BcInputState, BcMedia, BcRarity, BcRPAction, BcRPCategory, BcRPLog, BcShopItem, BcTask, BcTextTemplate, BcUserBonusTask, BcUserRole, BcUserTask, BcUserState, BcUserSettings, BcMarriageProposal, BcMarketLot, Marriage, User, UserProfile
+from app.infra.runtime import get_runtime
+from app.services.cooldown_service import CooldownService, CooldownState
+from app.services.runtime_settings_service import RuntimeSettingsService
+from app.services.user_account_service import UserAccountService
 from app.utils.time import ensure_utc, utcnow
 settings = get_settings()
-
-SYSTEM_SETTINGS_DEFAULTS: dict[str, dict[str, object]] = {
-    'cooldowns': {
-        'brawl_cards': int(settings.brawl_cooldown_seconds),
-        'bonus': int(settings.bonus_cooldown_seconds),
-        'nick_change': 24 * 3600,
-        'dice': int(settings.dice_cooldown_seconds),
-        'guess_rarity': 60,
-        'coinflip': 60,
-        'card_battle': 60,
-        'slot': 60,
-        'premium_game_reduction': 20,
-    },
-    'rewards': {
-        'bonus_coins': int(settings.bonus_reward_coins),
-        'bonus_stars': int(settings.bonus_reward_stars),
-        'market_fee_percent': 5,
-    },
-    'bonus_links': dict(settings.bonus_urls()),
-}
-
-@dataclass(frozen=True)
-class CooldownState:
-    ready: bool
-    seconds_left: int
-EMOJI_RE = re.compile('[🌀-🗿😀-🙏🚀-\U0001f6ff🜀-🝿🞀-\U0001f7ff🠀-\U0001f8ff🤀-🧿🨀-\U0001fa6f🩰-\U0001faff☀-⛿✀-➿]+', flags=re.UNICODE)
-
-def contains_emoji(text: str) -> bool:
-    return bool(EMOJI_RE.search(text))
+runtime = get_runtime()
 
 def normalize_weights(items: list[tuple[str, float]]) -> list[tuple[str, float]]:
     safe = [(k, max(0.0, float(w))) for k, w in items]
@@ -58,6 +33,9 @@ class BrawlCardsService:
 
     def __init__(self, session: AsyncSession):
         self.session = session
+        self.cooldowns = CooldownService(session)
+        self.runtime_settings = RuntimeSettingsService(session)
+        self.user_accounts = UserAccountService(session, self.cooldowns, self.runtime_settings)
 
     async def ensure_user(self, user_id: int, username: str | None, first_name: str) -> User:
         user = await self.session.get(User, user_id)
@@ -106,23 +84,10 @@ class BrawlCardsService:
         return bool(user and premium_until and (premium_until > utcnow()))
 
     async def get_cooldown(self, user_id: int, action: str) -> CooldownState:
-        now = utcnow()
-        row = await self.session.get(Cooldown, {'user_id': user_id, 'action': action})
-        available_at = ensure_utc(row.available_at) if row else None
-        if row is None or available_at is None or available_at <= now:
-            return CooldownState(ready=True, seconds_left=0)
-        return CooldownState(ready=False, seconds_left=int((available_at - now).total_seconds()))
+        return await self.cooldowns.get(user_id, action)
 
     async def set_cooldown(self, user_id: int, action: str, seconds: int) -> None:
-        now = utcnow()
-        available_at = now + timedelta(seconds=max(0, int(seconds)))
-        row = await self.session.get(Cooldown, {'user_id': user_id, 'action': action})
-        if row is None:
-            row = Cooldown(user_id=user_id, action=action, available_at=available_at)
-            self.session.add(row)
-        else:
-            row.available_at = available_at
-        await self.session.flush()
+        await self.cooldowns.set(user_id, action, seconds)
 
     async def get_input_state(self, user_id: int) -> BcInputState | None:
         return await self.session.get(BcInputState, user_id)
@@ -144,122 +109,42 @@ class BrawlCardsService:
             await self.session.flush()
 
     async def get_system_section(self, section: str) -> dict[str, object]:
-        defaults = dict(SYSTEM_SETTINGS_DEFAULTS.get(section, {}))
-        row = await self.session.get(Setting, f'bc:{section}')
-        if row is None or not isinstance(row.value_json, dict):
-            return defaults
-        data = dict(defaults)
-        data.update(row.value_json)
-        return data
+        return await self.runtime_settings.get_section(section)
 
     async def set_system_section(self, section: str, payload: dict[str, object]) -> dict[str, object]:
-        defaults = dict(SYSTEM_SETTINGS_DEFAULTS.get(section, {}))
-        data = dict(defaults)
-        data.update(payload)
-        row = await self.session.get(Setting, f'bc:{section}')
-        if row is None:
-            row = Setting(key=f'bc:{section}', value_json=data)
-            self.session.add(row)
-        else:
-            row.value_json = data
-        await self.session.flush()
-        return data
+        return await self.runtime_settings.set_section(section, payload)
 
     async def set_system_value(self, section: str, key: str, value: object) -> dict[str, object]:
-        data = await self.get_system_section(section)
-        data[key] = value
-        return await self.set_system_section(section, data)
+        return await self.runtime_settings.set_value(section, key, value)
 
     async def resolve_bonus_url(self, task: BcBonusTask) -> str:
-        cfg = dict(task.config or {})
-        url = str(cfg.get('url') or '').strip()
-        if url:
-            return url
-        links = await self.get_system_section('bonus_links')
-        return str(links.get(task.key) or '').strip()
+        return await self.runtime_settings.resolve_bonus_url(task)
 
     async def admin_update_user(self, target_user_id: int, field: str, value: str) -> tuple[bool, str]:
-        user = await self.session.scalar(select(User).where(User.id == target_user_id).with_for_update())
-        if user is None:
-            return (False, 'Пользователь не найден.')
-        profile = await self.ensure_profile(target_user_id)
-        field = field.strip().lower()
-        raw_value = value.strip()
-        try:
-            if field == 'coins':
-                user.coins = max(0, int(raw_value))
-                result = f'Монеты обновлены: {user.coins}'
-            elif field == 'stars':
-                user.stars = max(0, int(raw_value))
-                result = f'Звезды обновлены: {user.stars}'
-            elif field == 'points':
-                user.total_points = max(0, int(raw_value))
-                result = f'Очки обновлены: {user.total_points}'
-            elif field == 'level':
-                profile.level = max(1, int(raw_value))
-                result = f'Уровень обновлен: {profile.level}'
-            elif field == 'exp':
-                profile.exp = max(0, int(raw_value))
-                result = f'Опыт обновлен: {profile.exp}'
-            elif field == 'premium_days':
-                days = int(raw_value)
-                user.premium_until = None if days <= 0 else utcnow() + timedelta(days=days)
-                premium_until = ensure_utc(user.premium_until)
-                result = f'Premium до: {premium_until.isoformat(timespec="seconds")}' if premium_until else 'Premium отключен.'
-            elif field == 'nickname':
-                user.nickname = raw_value or None
-                result = f'Ник обновлен: {user.nickname or "—"}'
-            elif field.startswith('cooldown:'):
-                action = field.split(':', maxsplit=1)[1].strip()
-                if not action:
-                    return (False, 'Укажите action после cooldown:.')
-                seconds = max(0, int(raw_value))
-                await self.set_cooldown(target_user_id, action, seconds)
-                result = f'Кулдаун {action} установлен на {seconds}с.'
-            else:
-                return (False, 'Поле не поддерживается.')
-        except ValueError:
-            return (False, 'Значение имеет неверный формат.')
-        await self.session.flush()
-        return (True, result)
+        return await self.user_accounts.admin_update_user(target_user_id, field, value)
 
     async def set_nickname(self, user_id: int, nickname: str) -> tuple[bool, str]:
-        user = await self.session.get(User, user_id)
-        if user is None:
-            return (False, 'Профиль не найден.')
-        nickname = nickname.strip()
-        if not 3 <= len(nickname) <= 24:
-            return (False, 'Длина ника: 3–24 символа.')
-        if '\n' in nickname or '\r' in nickname:
-            return (False, 'Ник должен быть в одну строку.')
-        is_premium = bool(ensure_utc(user.premium_until) and ensure_utc(user.premium_until) > utcnow())
-        if not is_premium and contains_emoji(nickname):
-            return (False, 'Эмодзи в нике доступны только с Premium.')
-        if not re.fullmatch('[0-9A-Za-zА-Яа-я _\\\\-\\\\[\\\\]().,!?:+@#]{3,24}', nickname):
-            if not (is_premium and contains_emoji(nickname)):
-                return (False, 'Разрешены: буквы/цифры/пробел и символы _-[]().,!?:+@#')
-        now = utcnow()
-        cooldown_row = await self.session.get(Cooldown, {'user_id': user_id, 'action': 'nick_change'})
-        if cooldown_row is not None and ensure_utc(cooldown_row.available_at) > now:
-            left = int((ensure_utc(cooldown_row.available_at) - now).total_seconds())
-            return (False, f'Кулдаун смены ника: {left // 60}Рј {left % 60}с.')
-        cooldowns = await self.get_system_section('cooldowns')
-        user.nickname = nickname
-        await self.set_cooldown(user_id, 'nick_change', int(cooldowns.get('nick_change') or 24 * 3600))
-        await self.session.flush()
-        return (True, f'Ник обновлён: {nickname}')
+        return await self.user_accounts.set_nickname(user_id, nickname)
+
+    async def change_nickname(self, user_id: int, nickname: str) -> tuple[bool, str]:
+        return await self.user_accounts.change_nickname(user_id, nickname)
 
     async def rarities(self) -> list[BcRarity]:
+        cache_key = 'catalog:rarities'
+        cached = runtime.content_cache.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
         rows = (await self.session.scalars(select(BcRarity).where(BcRarity.is_active.is_(True)).order_by(BcRarity.sort))).all()
-        return list(rows)
-
-    async def active_boosters(self, user_id: int) -> list[BcActiveBooster]:
-        now = utcnow()
-        rows = (await self.session.scalars(select(BcActiveBooster).where(BcActiveBooster.user_id == user_id).where(BcActiveBooster.active_until.is_(None) | (BcActiveBooster.active_until > now)))).all()
+        runtime.content_cache.set(cache_key, list(rows), 60.0)
         return list(rows)
 
     async def bonus_tasks(self) -> list[BcBonusTask]:
+        cache_key = 'catalog:bonus_tasks'
+        cached = runtime.content_cache.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
         rows = (await self.session.scalars(select(BcBonusTask).where(BcBonusTask.is_active.is_(True)).order_by(BcBonusTask.sort))).all()
+        runtime.content_cache.set(cache_key, list(rows), 60.0)
         return list(rows)
 
     async def user_bonus_task(self, user_id: int, task_key: str) -> BcUserBonusTask:
@@ -290,110 +175,6 @@ class BrawlCardsService:
                 return f"@{path.split('/')[0]}"
         return None
 
-    async def verify_and_mark_bonus_task(self, bot, user_id: int, task_key: str) -> tuple[bool, str]:
-        task = await self.session.get(BcBonusTask, task_key)
-        if task is None or not task.is_active:
-            return (False, 'Бонусное задание не найдено.')
-        if task.type not in {'subscribe', 'channel', 'chat'}:
-            await self.mark_bonus_task_done(user_id, task_key)
-            return (True, 'Задание отмечено как выполненное.')
-
-        chat_ref = self.bonus_task_chat_ref(task)
-        if chat_ref is None:
-            return (False, 'У задания не настроен chat_id, username или ссылка на чат.')
-
-        try:
-            me = await bot.get_me()
-            bot_member = await bot.get_chat_member(chat_ref, me.id)
-        except TelegramForbiddenError:
-            return (False, 'Бот не имеет доступа к чату для проверки подписки.')
-        except TelegramBadRequest as exc:
-            return (False, f'Не удалось открыть чат для проверки: {exc.message}.')
-        except Exception as exc:
-            return (False, f'Ошибка проверки прав бота: {exc}.')
-
-        if getattr(bot_member, 'status', '') not in {'administrator', 'creator'}:
-            return (False, 'Проверка невозможна: бот должен быть администратором в этом чате или канале.')
-
-        try:
-            member = await bot.get_chat_member(chat_ref, user_id)
-        except TelegramForbiddenError:
-            return (False, 'Чат недоступен для проверки подписки.')
-        except TelegramBadRequest as exc:
-            return (False, f'Не удалось проверить подписку пользователя: {exc.message}.')
-        except Exception as exc:
-            return (False, f'Ошибка проверки подписки: {exc}.')
-
-        if getattr(member, 'status', '') not in {'member', 'administrator', 'creator'}:
-            return (False, 'Подписка не найдена. Сначала вступите в нужный чат или канал.')
-
-        row = await self.user_bonus_task(user_id, task_key)
-        row.state = {**dict(row.state or {}), 'verified_at': utcnow().isoformat(), 'chat_ref': str(chat_ref)}
-        if row.completed_at is None:
-            row.completed_at = utcnow()
-        await self.session.flush()
-        return (True, 'Подписка подтверждена. Задание засчитано.')
-
-    async def bonus_claim_if_ready(self, user_id: int) -> tuple[bool, str]:
-        tasks = await self.bonus_tasks()
-        if not tasks:
-            return (False, 'Бонусные задания не настроены.')
-        for t in tasks:
-            row = await self.user_bonus_task(user_id, t.key)
-            if row.completed_at is None:
-                return (False, 'Сначала выполните все бонусные задания и нажмите «Проверить».')
-        cd = await self.get_cooldown(user_id, 'bonus')
-        if not cd.ready:
-            return (False, f'Кулдаун бонуса: {cd.seconds_left}s.')
-        runtime_rewards = await self.get_system_section('rewards')
-        runtime_cooldowns = await self.get_system_section('cooldowns')
-        bonus_coins = int(runtime_rewards.get('bonus_coins') or settings.bonus_reward_coins)
-        bonus_stars = int(runtime_rewards.get('bonus_stars') or settings.bonus_reward_stars)
-        bonus_cooldown = int(runtime_cooldowns.get('bonus') or settings.bonus_cooldown_seconds)
-        user = await self.session.scalar(select(User).where(User.id == user_id).with_for_update())
-        if user is None:
-            return (False, 'Профиль не найден.')
-        user.coins += bonus_coins
-        user.stars += bonus_stars
-        await self.set_cooldown(user_id, 'bonus', bonus_cooldown)
-        await self.session.flush()
-        return (True, f'Бонус получен: +{bonus_coins}🪙 +{bonus_stars}⭐')
-
-    async def shop_categories(self) -> list[str]:
-        rows = (await self.session.scalars(select(func.distinct(BcShopItem.category_key)).where(BcShopItem.is_active.is_(True)))).all()
-        return [str(x) for x in rows]
-
-    async def shop_items(self, category_key: str) -> list[BcShopItem]:
-        rows = (await self.session.scalars(select(BcShopItem).where(and_(BcShopItem.category_key == category_key, BcShopItem.is_active.is_(True))).order_by(BcShopItem.sort, BcShopItem.id))).all()
-        return list(rows)
-
-    async def shop_item(self, item_key: str) -> BcShopItem | None:
-        return await self.session.scalar(select(BcShopItem).where(BcShopItem.key == item_key, BcShopItem.is_active.is_(True)))
-
-    async def shop_offers(self, limit: int=6) -> list[BcShopItem]:
-        rows = (
-            await self.session.scalars(
-                select(BcShopItem)
-                .where(BcShopItem.is_active.is_(True))
-                .order_by(BcShopItem.sort, BcShopItem.id)
-                .limit(limit)
-            )
-        ).all()
-        return list(rows)
-
-    async def active_events(self) -> list[BcEvent]:
-        now = utcnow()
-        rows = (
-            await self.session.scalars(
-                select(BcEvent)
-                .where(BcEvent.is_active.is_(True))
-                .where(or_(BcEvent.starts_at.is_(None), BcEvent.starts_at <= now))
-                .where(or_(BcEvent.ends_at.is_(None), BcEvent.ends_at >= now))
-                .order_by(BcEvent.starts_at.desc().nullslast(), BcEvent.id.desc())
-            )
-        ).all()
-        return list(rows)
-
     async def economy_overview(self, user_id: int) -> dict[str, object]:
         user = await self.session.get(User, user_id)
         profile = await self.ensure_profile(user_id)
@@ -417,17 +198,6 @@ class BrawlCardsService:
             'card_cooldown': card_cd.seconds_left,
             'bonus_cooldown': bonus_cd.seconds_left,
         }
-
-    async def chests(self) -> list[BcChest]:
-        rows = (await self.session.scalars(select(BcChest).where(BcChest.is_active.is_(True)).order_by(BcChest.sort))).all()
-        return list(rows)
-
-    async def tasks(self, kind: str | None=None) -> list[BcTask]:
-        q = select(BcTask).where(BcTask.is_active.is_(True))
-        if kind:
-            q = q.where(BcTask.kind == kind)
-        rows = (await self.session.scalars(q.order_by(BcTask.sort))).all()
-        return list(rows)
 
     async def get_user_task(self, user_id: int, task: BcTask) -> BcUserTask:
         row = await self.session.get(BcUserTask, {'user_id': user_id, 'task_key': task.key})
@@ -619,47 +389,6 @@ class BrawlCardsService:
                 return r
         return rarities[0]
 
-    async def random_card(self, rarity_key: str) -> BcCard | None:
-        card = await self.session.scalar(select(BcCard).where(and_(BcCard.rarity_key == rarity_key, BcCard.is_active.is_(True))).order_by(func.random()).limit(1))
-        if card is not None:
-            return card
-        return await self.session.scalar(select(BcCard).where(BcCard.is_active.is_(True)).order_by(func.random()).limit(1))
-
-    async def grant_card(self, user: User, card: BcCard, source: str, rarity: BcRarity) -> BcCardInstance:
-        is_premium = bool(ensure_utc(user.premium_until) and ensure_utc(user.premium_until) > utcnow())
-        active = await self.active_boosters(user.id)
-        points_mult = 1.0
-        coins_mult = 1.0
-        for b in active:
-            booster = await self.session.get(BcBooster, b.booster_key)
-            if booster is None:
-                continue
-            if booster.effect_type == 'coins_mult':
-                coins_mult *= 1.0 + float(booster.effect_power) * max(1, int(b.stacks))
-            if booster.effect_type == 'points_mult':
-                points_mult *= 1.0 + float(booster.effect_power) * max(1, int(b.stacks))
-        points = int(card.base_points * rarity.points_mult * points_mult)
-        coins = int(card.base_coins * rarity.coins_mult * coins_mult)
-        if is_premium:
-            coins = int(coins * 1.15)
-        inst = BcCardInstance(user_id=user.id, card_id=card.id, source=source, points_awarded=points, coins_awarded=coins, is_limited=bool(card.is_limited), limited_series_id=card.limited_series_id)
-        self.session.add(inst)
-        user.total_points += points
-        user.coins += coins
-        user.cards_total += 1
-        await self.session.flush()
-        state = await self.session.get(BcUserState, user.id)
-        now = utcnow()
-        if state is None:
-            state = BcUserState(user_id=user.id, last_card_instance_id=inst.id, last_card_id=card.id, last_card_got_at=now)
-            self.session.add(state)
-        else:
-            state.last_card_instance_id = inst.id
-            state.last_card_id = card.id
-            state.last_card_got_at = now
-        await self.session.flush()
-        return inst
-
     async def brawl_get_card(self, user_id: int) -> dict:
         user = await self.session.scalar(select(User).where(User.id == user_id).with_for_update())
         if user is None:
@@ -724,17 +453,6 @@ class BrawlCardsService:
             inst = await self.grant_card(user, card, source=f'chest:{chest_key}', rarity=rarity)
             results.append({'instance_id': inst.id, 'title': card.title, 'rarity': f'{rarity.emoji} {rarity.title}', 'points': inst.points_awarded, 'coins': inst.coins_awarded})
         return {'ok': True, 'chest': {'key': chest.key, 'title': chest.title, 'emoji': chest.emoji}, 'drops': results}
-
-    async def rp_categories(self) -> list[BcRPCategory]:
-        rows = (await self.session.scalars(select(BcRPCategory).where(BcRPCategory.is_active.is_(True)).order_by(BcRPCategory.sort))).all()
-        return list(rows)
-
-    async def rp_actions(self, category_key: str | None=None) -> list[BcRPAction]:
-        q = select(BcRPAction).where(BcRPAction.is_active.is_(True))
-        if category_key:
-            q = q.where(BcRPAction.category_key == category_key)
-        rows = (await self.session.scalars(q.order_by(BcRPAction.sort, BcRPAction.key))).all()
-        return list(rows)
 
     async def resolve_user_reference(self, value: str) -> User | None:
         raw = value.strip()
@@ -824,6 +542,138 @@ class BrawlCardsService:
     async def perform_rp_action(self, actor_id: int, action_key: str, target_id: int | None, chat_id: int | None, message_id: int | None) -> tuple[bool, str]:
         result = await self.perform_rp_action_payload(actor_id, action_key, target_id, None, chat_id, message_id)
         return (bool(result.get('ok')), str(result.get('text') or result.get('message') or 'Ошибка.'))
+
+    @staticmethod
+    def telegram_game_keys() -> set[str]:
+        return {'dice', 'slot', 'darts', 'football', 'basketball'}
+
+    @staticmethod
+    def telegram_game_emoji(game_key: str) -> str | None:
+        return {
+            'dice': '🎲',
+            'slot': '🎰',
+            'darts': '🎯',
+            'football': '⚽',
+            'basketball': '🏀',
+        }.get(game_key)
+
+    @staticmethod
+    def telegram_game_title(game_key: str) -> str:
+        return {
+            'dice': '🎲 Кости',
+            'slot': '🎰 Слоты',
+            'darts': '🎯 Дартс',
+            'football': '⚽ Футбол',
+            'basketball': '🏀 Баскетбол',
+        }.get(game_key, game_key)
+
+    @staticmethod
+    def telegram_game_multiplier(game_key: str, value: int) -> tuple[float, str]:
+        if game_key == 'dice':
+            return {
+                1: (0.0, 'Выпало 1'),
+                2: (0.4, 'Выпало 2'),
+                3: (0.8, 'Выпало 3'),
+                4: (1.2, 'Выпало 4'),
+                5: (1.8, 'Выпало 5'),
+                6: (2.6, 'Выпало 6'),
+            }.get(value, (0.0, f'Результат: {value}'))
+        if game_key == 'darts':
+            return {
+                1: (0.0, 'Мимо'),
+                2: (0.0, 'Слабое попадание'),
+                3: (0.6, 'Неплохой бросок'),
+                4: (1.3, 'Точное попадание'),
+                5: (1.8, 'Почти центр'),
+                6: (2.8, 'Буллсай'),
+            }.get(value, (0.0, f'Результат: {value}'))
+        if game_key == 'football':
+            return {
+                1: (0.0, 'Мимо ворот'),
+                2: (0.3, 'Штанга'),
+                3: (1.2, 'Гол'),
+                4: (1.8, 'Красивый гол'),
+                5: (2.5, 'Идеальный удар'),
+            }.get(value, (0.0, f'Результат: {value}'))
+        if game_key == 'basketball':
+            return {
+                1: (0.0, 'Промах'),
+                2: (0.2, 'Касание кольца'),
+                3: (0.8, 'Почти попал'),
+                4: (1.5, 'Попадание'),
+                5: (2.4, 'Чистый бросок'),
+            }.get(value, (0.0, f'Результат: {value}'))
+        if game_key == 'slot':
+            if value == 64:
+                return (5.0, 'Джекпот')
+            if value >= 48:
+                return (3.0, f'Сильная комбинация ({value})')
+            if value >= 32:
+                return (1.8, f'Хорошая комбинация ({value})')
+            if value >= 16:
+                return (1.1, f'Комбинация со слабым плюсом ({value})')
+            if value >= 8:
+                return (0.5, f'Почти повезло ({value})')
+            return (0.0, f'Пустой спин ({value})')
+        return (0.0, f'Результат: {value}')
+
+    async def prepare_telegram_game(self, user_id: int, game_key: str, stake: int) -> tuple[bool, str]:
+        if game_key not in self.telegram_game_keys():
+            return (False, 'Игра не поддерживается.')
+        user = await self.session.scalar(select(User).where(User.id == user_id).with_for_update())
+        if user is None:
+            return (False, 'Профиль не найден.')
+        if stake <= 0:
+            return (False, 'Ставка должна быть больше нуля.')
+        if user.coins < stake:
+            return (False, 'Недостаточно монет для ставки.')
+        cd = await self.get_cooldown(user_id, f'game:{game_key}')
+        if not cd.ready:
+            return (False, f'Кулдаун игры: {cd.seconds_left}с.')
+        user.coins -= stake
+        await self.set_cooldown(user_id, f'game:{game_key}', 15)
+        await self.session.flush()
+        return (True, 'ok')
+
+    async def rollback_telegram_game(self, user_id: int, game_key: str, stake: int) -> None:
+        user = await self.session.scalar(select(User).where(User.id == user_id).with_for_update())
+        if user is not None:
+            user.coins += max(0, int(stake))
+        await self.set_cooldown(user_id, f'game:{game_key}', 0)
+        await self.session.flush()
+
+    async def finalize_telegram_game(self, user_id: int, game_key: str, stake: int, value: int) -> tuple[bool, str]:
+        if game_key not in self.telegram_game_keys():
+            return (False, 'Игра не поддерживается.')
+        user = await self.session.scalar(select(User).where(User.id == user_id).with_for_update())
+        if user is None:
+            return (False, 'Профиль не найден.')
+        multiplier, extra = self.telegram_game_multiplier(game_key, int(value))
+        payout = int(stake * multiplier)
+        if payout > 0:
+            user.coins += payout
+        win = payout > stake
+        await self.record_game(user_id, won=win)
+        await self.inc_task_counter(user_id, 'play_dice' if game_key == 'dice' else 'play_game', 1)
+        runtime_cooldowns = await self.get_system_section('cooldowns')
+        cooldown_seconds = int(runtime_cooldowns.get(game_key) or 60)
+        premium_until = ensure_utc(user.premium_until)
+        if premium_until and premium_until > utcnow():
+            reduction = int(runtime_cooldowns.get('premium_game_reduction') or 20)
+            cooldown_seconds = max(5, cooldown_seconds - reduction)
+        await self.set_cooldown(user_id, f'game:{game_key}', cooldown_seconds)
+        await self.session.flush()
+        delta = payout - stake
+        status = 'Победа' if delta > 0 else 'Ничья' if delta == 0 else 'Поражение'
+        return (
+            True,
+            f"{self.telegram_game_title(game_key)}\n"
+            f"{extra}\n"
+            f"Ставка: {stake}🪙\n"
+            f"Выплата: {payout}🪙\n"
+            f"Итог: {delta:+}🪙\n"
+            f"Статус: {status}"
+        )
 
     async def game_play(self, user_id: int, game_key: str, stake: int) -> tuple[bool, str]:
         user = await self.session.scalar(select(User).where(User.id == user_id).with_for_update())
@@ -988,6 +838,326 @@ class BrawlCardsService:
         await self.session.flush()
         return (True, 'Поздравляем, брак зарегистрирован.')
 
+    async def active_boosters(self, user_id: int) -> list[BcActiveBooster]:
+        now = utcnow()
+        rows = (
+            await self.session.scalars(
+                select(BcActiveBooster)
+                .where(BcActiveBooster.user_id == user_id)
+                .where(or_(BcActiveBooster.active_until.is_(None), BcActiveBooster.active_until > now))
+            )
+        ).all()
+        return list(rows)
+
+    async def _active_booster_rows(self, user_id: int) -> list[tuple[BcActiveBooster, BcBooster]]:
+        now = utcnow()
+        rows = (
+            await self.session.execute(
+                select(BcActiveBooster, BcBooster)
+                .join(BcBooster, BcBooster.key == BcActiveBooster.booster_key)
+                .where(BcActiveBooster.user_id == user_id)
+                .where(or_(BcActiveBooster.active_until.is_(None), BcActiveBooster.active_until > now))
+            )
+        ).all()
+        return [(active, booster) for active, booster in rows]
+
+    async def random_card(self, rarity_key: str) -> BcCard | None:
+        cache_key = f'catalog:card_pool:{rarity_key}'
+        card_ids = runtime.content_cache.get(cache_key)
+        if not isinstance(card_ids, list):
+            card_ids = (
+                await self.session.scalars(
+                    select(BcCard.id).where(
+                        and_(BcCard.rarity_key == rarity_key, BcCard.is_active.is_(True))
+                    )
+                )
+            ).all()
+            runtime.content_cache.set(cache_key, list(card_ids), 30.0)
+        if card_ids:
+            return await self.session.get(BcCard, random.choice(card_ids))
+
+        fallback_key = 'catalog:card_pool:all'
+        fallback_ids = runtime.content_cache.get(fallback_key)
+        if not isinstance(fallback_ids, list):
+            fallback_ids = (
+                await self.session.scalars(select(BcCard.id).where(BcCard.is_active.is_(True)))
+            ).all()
+            runtime.content_cache.set(fallback_key, list(fallback_ids), 30.0)
+        if not fallback_ids:
+            return None
+        return await self.session.get(BcCard, random.choice(fallback_ids))
+
+    async def grant_card(self, user: User, card: BcCard, source: str, rarity: BcRarity) -> BcCardInstance:
+        premium_until = ensure_utc(user.premium_until)
+        is_premium = bool(premium_until and premium_until > utcnow())
+        points_mult = 1.0
+        coins_mult = 1.0
+        for active, booster in await self._active_booster_rows(user.id):
+            stacks = max(1, int(active.stacks))
+            if booster.effect_type == 'coins_mult':
+                coins_mult *= 1.0 + float(booster.effect_power) * stacks
+            elif booster.effect_type == 'points_mult':
+                points_mult *= 1.0 + float(booster.effect_power) * stacks
+
+        points = int(card.base_points * rarity.points_mult * points_mult)
+        coins = int(card.base_coins * rarity.coins_mult * coins_mult)
+        if is_premium:
+            coins = int(coins * 1.15)
+
+        inst = BcCardInstance(
+            user_id=user.id,
+            card_id=card.id,
+            source=source,
+            points_awarded=points,
+            coins_awarded=coins,
+            is_limited=bool(card.is_limited),
+            limited_series_id=card.limited_series_id,
+        )
+        self.session.add(inst)
+        user.total_points += points
+        user.coins += coins
+        user.cards_total += 1
+        now = utcnow()
+        state = await self.session.get(BcUserState, user.id)
+        if state is None:
+            state = BcUserState(
+                user_id=user.id,
+                last_card_instance_id=None,
+                last_card_id=card.id,
+                last_card_got_at=now,
+            )
+            self.session.add(state)
+        state.last_card_id = card.id
+        state.last_card_got_at = now
+        await self.session.flush()
+        state.last_card_instance_id = inst.id
+        await self.session.flush()
+        return inst
+
+    async def shop_categories(self) -> list[str]:
+        cache_key = 'catalog:shop_categories'
+        cached = runtime.content_cache.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
+        rows = (
+            await self.session.scalars(
+                select(func.distinct(BcShopItem.category_key)).where(BcShopItem.is_active.is_(True))
+            )
+        ).all()
+        result = [str(value) for value in rows]
+        runtime.content_cache.set(cache_key, list(result), 30.0)
+        return result
+
+    async def shop_items(self, category_key: str) -> list[BcShopItem]:
+        cache_key = f'catalog:shop_items:{category_key}'
+        cached = runtime.content_cache.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
+        rows = (
+            await self.session.scalars(
+                select(BcShopItem)
+                .where(and_(BcShopItem.category_key == category_key, BcShopItem.is_active.is_(True)))
+                .order_by(BcShopItem.sort, BcShopItem.id)
+            )
+        ).all()
+        runtime.content_cache.set(cache_key, list(rows), 30.0)
+        return list(rows)
+
+    async def shop_item(self, item_key: str) -> BcShopItem | None:
+        cache_key = f'catalog:shop_item:{item_key}'
+        cached = runtime.content_cache.get(cache_key)
+        if isinstance(cached, BcShopItem):
+            return cached
+        item = await self.session.scalar(
+            select(BcShopItem).where(BcShopItem.key == item_key, BcShopItem.is_active.is_(True))
+        )
+        if item is not None:
+            runtime.content_cache.set(cache_key, item, 30.0)
+        return item
+
+    async def shop_offers(self, limit: int=6) -> list[BcShopItem]:
+        cache_key = f'catalog:shop_offers:{limit}'
+        cached = runtime.content_cache.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
+        rows = (
+            await self.session.scalars(
+                select(BcShopItem)
+                .where(BcShopItem.is_active.is_(True))
+                .order_by(BcShopItem.sort, BcShopItem.id)
+                .limit(limit)
+            )
+        ).all()
+        runtime.content_cache.set(cache_key, list(rows), 30.0)
+        return list(rows)
+
+    async def active_events(self) -> list[BcEvent]:
+        cache_key = 'catalog:active_events'
+        cached = runtime.content_cache.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
+        now = utcnow()
+        rows = (
+            await self.session.scalars(
+                select(BcEvent)
+                .where(BcEvent.is_active.is_(True))
+                .where(or_(BcEvent.starts_at.is_(None), BcEvent.starts_at <= now))
+                .where(or_(BcEvent.ends_at.is_(None), BcEvent.ends_at >= now))
+                .order_by(BcEvent.starts_at.desc().nullslast(), BcEvent.id.desc())
+            )
+        ).all()
+        runtime.content_cache.set(cache_key, list(rows), 30.0)
+        return list(rows)
+
+    async def chests(self) -> list[BcChest]:
+        cache_key = 'catalog:chests'
+        cached = runtime.content_cache.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
+        rows = (
+            await self.session.scalars(
+                select(BcChest).where(BcChest.is_active.is_(True)).order_by(BcChest.sort)
+            )
+        ).all()
+        runtime.content_cache.set(cache_key, list(rows), 30.0)
+        return list(rows)
+
+    async def tasks(self, kind: str | None=None) -> list[BcTask]:
+        cache_key = f'catalog:tasks:{kind or "all"}'
+        cached = runtime.content_cache.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
+        query = select(BcTask).where(BcTask.is_active.is_(True))
+        if kind:
+            query = query.where(BcTask.kind == kind)
+        rows = (await self.session.scalars(query.order_by(BcTask.sort))).all()
+        runtime.content_cache.set(cache_key, list(rows), 30.0)
+        return list(rows)
+
+    async def rp_categories(self) -> list[BcRPCategory]:
+        cache_key = 'catalog:rp_categories'
+        cached = runtime.content_cache.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
+        rows = (
+            await self.session.scalars(
+                select(BcRPCategory).where(BcRPCategory.is_active.is_(True)).order_by(BcRPCategory.sort)
+            )
+        ).all()
+        runtime.content_cache.set(cache_key, list(rows), 30.0)
+        return list(rows)
+
+    async def rp_actions(self, category_key: str | None=None) -> list[BcRPAction]:
+        cache_key = f'catalog:rp_actions:{category_key or "all"}'
+        cached = runtime.content_cache.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
+        query = select(BcRPAction).where(BcRPAction.is_active.is_(True))
+        if category_key:
+            query = query.where(BcRPAction.category_key == category_key)
+        rows = (await self.session.scalars(query.order_by(BcRPAction.sort, BcRPAction.key))).all()
+        runtime.content_cache.set(cache_key, list(rows), 30.0)
+        return list(rows)
+
+    async def buy_shop_item(self, user_id: int, item_key: str, currency: str) -> tuple[bool, str]:
+        if currency not in {'coins', 'stars'}:
+            return (False, 'Неподдерживаемая валюта покупки.')
+        user = await self.session.scalar(select(User).where(User.id == user_id).with_for_update())
+        if user is None:
+            return (False, 'Профиль не найден.')
+        item = await self.session.scalar(
+            select(BcShopItem).where(BcShopItem.key == item_key, BcShopItem.is_active.is_(True))
+        )
+        if item is None:
+            return (False, 'Товар не найден.')
+
+        price = item.price_coins if currency == 'coins' else item.price_stars
+        if price is None:
+            return (False, 'Этот товар нельзя оплатить выбранной валютой.')
+
+        if currency == 'coins':
+            if user.coins < int(price):
+                return (False, 'Недостаточно монет.')
+            user.coins -= int(price)
+        else:
+            if user.stars < int(price):
+                return (False, 'Недостаточно звёзд.')
+            user.stars -= int(price)
+
+        ok, message = await self.grant_shop_item(user_id, item_key, source=f'shop:{currency}')
+        if not ok:
+            if currency == 'coins':
+                user.coins += int(price)
+            else:
+                user.stars += int(price)
+            return (False, message)
+
+        self.session.add(
+            BcAuditLog(
+                actor_id=user_id,
+                action='shop.purchase',
+                payload={'item_key': item_key, 'currency': currency, 'price': int(price)},
+            )
+        )
+        await self.session.flush()
+        return (True, message)
+
+    async def verify_and_mark_bonus_task(self, bot, user_id: int, task_key: str) -> tuple[bool, str]:
+        task = await self.session.get(BcBonusTask, task_key)
+        if task is None or not task.is_active:
+            return (False, 'Бонусное задание не найдено.')
+        if task.type not in {'subscribe', 'channel', 'chat'}:
+            await self.mark_bonus_task_done(user_id, task_key)
+            return (True, 'Задание отмечено как выполненное.')
+
+        chat_ref = self.bonus_task_chat_ref(task)
+        if chat_ref is None:
+            return (False, 'У задания не настроен chat_id, username или ссылка на чат.')
+
+        membership = await runtime.membership_verifier.verify_membership(bot, chat_ref, user_id)
+        if membership.state == MembershipCheckState.BOT_NO_ACCESS:
+            return (False, 'Бот сейчас не может корректно проверить участие в чате. Проверьте права бота и повторите позже.')
+        if membership.state == MembershipCheckState.CHAT_UNAVAILABLE:
+            return (False, 'Чат или канал недоступен для проверки. Проверьте настройку задания.')
+        if membership.state == MembershipCheckState.TIMEOUT:
+            return (False, 'Telegram отвечает слишком медленно. Попробуйте повторить проверку чуть позже.')
+        if membership.state == MembershipCheckState.ERROR:
+            return (False, 'Проверка подписки временно недоступна. Попробуйте снова.')
+        if not membership.is_member:
+            return (False, 'Подписка не найдена. Сначала вступите в нужный чат или канал.')
+
+        row = await self.user_bonus_task(user_id, task_key)
+        row.state = {**dict(row.state or {}), 'verified_at': utcnow().isoformat(), 'chat_ref': str(chat_ref)}
+        if row.completed_at is None:
+            row.completed_at = utcnow()
+        await self.session.flush()
+        return (True, 'Подписка подтверждена. Задание засчитано.')
+
+    async def bonus_claim_if_ready(self, user_id: int) -> tuple[bool, str]:
+        tasks = await self.bonus_tasks()
+        if not tasks:
+            return (False, 'Бонусные задания не настроены.')
+        for t in tasks:
+            row = await self.user_bonus_task(user_id, t.key)
+            if row.completed_at is None:
+                return (False, 'Сначала выполните все бонусные задания и нажмите «Проверить».')
+        cd = await self.get_cooldown(user_id, 'bonus')
+        if not cd.ready:
+            return (False, f'Кулдаун бонуса: {cd.seconds_left}s.')
+        runtime_rewards = await self.get_system_section('rewards')
+        runtime_cooldowns = await self.get_system_section('cooldowns')
+        bonus_coins = int(runtime_rewards.get('bonus_coins') or settings.bonus_reward_coins)
+        bonus_stars = int(runtime_rewards.get('bonus_stars') or settings.bonus_reward_stars)
+        bonus_cooldown = int(runtime_cooldowns.get('bonus') or settings.bonus_cooldown_seconds)
+        user = await self.session.scalar(select(User).where(User.id == user_id).with_for_update())
+        if user is None:
+            return (False, 'Профиль не найден.')
+        user.coins += bonus_coins
+        user.stars += bonus_stars
+        await self.set_cooldown(user_id, 'bonus', bonus_cooldown)
+        await self.session.flush()
+        return (True, f'Бонус получен: +{bonus_coins}🪙 +{bonus_stars}⭐')
+
     async def is_admin(self, user_id: int) -> bool:
         if user_id in get_settings().admin_id_set():
             return True
@@ -998,13 +1168,20 @@ class BrawlCardsService:
         return await self.ensure_settings(user_id)
 
     async def get_template_text(self, key: str, locale: str, fallback: str) -> str:
+        cache_key = f'template:{locale}:{key}'
+        cached = runtime.content_cache.get(cache_key)
+        if isinstance(cached, str):
+            return cached
         row = await self.session.get(BcTextTemplate, {'key': key, 'locale': locale})
         if row is not None and row.text.strip():
+            runtime.content_cache.set(cache_key, row.text, 60.0)
             return row.text
         if locale != 'ru':
             row = await self.session.get(BcTextTemplate, {'key': key, 'locale': 'ru'})
             if row is not None and row.text.strip():
+                runtime.content_cache.set(cache_key, row.text, 60.0)
                 return row.text
+        runtime.content_cache.set(cache_key, fallback, 30.0)
         return fallback
 
     async def upsert_template_text(self, key: str, locale: str, text: str) -> None:
@@ -1014,32 +1191,32 @@ class BrawlCardsService:
         else:
             row.text = text
         await self.session.flush()
+        runtime.content_cache.delete(f'template:{locale}:{key}')
 
     async def toggle_setting(self, user_id: int, key: str) -> tuple[bool, str]:
         s = await self.ensure_settings(user_id)
         if key == 'notifications':
             s.notifications = not bool(s.notifications)
             await self.session.flush()
-            return (True, f"???????????: {'???' if s.notifications else '????'}")
+            return (True, f"Уведомления: {'вкл' if s.notifications else 'выкл'}")
         if key == 'privacy':
             current = bool((s.privacy or {}).get('hidden'))
             s.privacy = {'hidden': not current}
             await self.session.flush()
-            return (True, f"???????????: {'??????? ???????' if not current else '???????? ???????'}")
+            return (True, f"Приватность: {'скрытый профиль' if not current else 'профиль видимый'}")
         if key == 'confirm':
             s.confirm_purchases = not bool(s.confirm_purchases)
             await self.session.flush()
-            return (True, f"????????????? ???????: {'???' if s.confirm_purchases else '????'}")
+            return (True, f"Подтверждение покупок: {'вкл' if s.confirm_purchases else 'выкл'}")
         if key == 'media':
             s.show_media = not bool(s.show_media)
             await self.session.flush()
-            return (True, f"????? ?????: {'???' if s.show_media else '????'}")
+            return (True, f"Показ медиа: {'вкл' if s.show_media else 'выкл'}")
         if key == 'safe_mode':
             s.safe_mode = not bool(s.safe_mode)
             await self.session.flush()
-            return (True, f"?????????? ?????: {'???' if s.safe_mode else '????'}")
-        return (False, '??????????? ?????????.')
-
+            return (True, f"Безопасный режим: {'вкл' if s.safe_mode else 'выкл'}")
+        return (False, 'Неизвестная настройка.')
 
     async def cycle_setting(self, user_id: int, key: str) -> tuple[bool, str]:
         s = await self.ensure_settings(user_id)

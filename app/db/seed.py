@@ -2,6 +2,7 @@
 
 from sqlalchemy import select
 
+from app.bot.ui_defaults import DEFAULT_TEXT_TEMPLATES
 from app.config import DEFAULT_DROP_RATES, DEFAULT_SHOP_PRICES, get_settings
 from app.db.models import (
     BcBonusTask,
@@ -404,19 +405,9 @@ async def seed_defaults() -> None:
                         )
                     )
 
-            existing_templates = await session.scalar(select(BcTextTemplate).limit(1))
-            if existing_templates is None:
-                templates = [
-                    ("screen.rp", "ru", "Выберите нужную категорию.\nЕсли действию нужна цель, ответьте на сообщение пользователя и нажмите кнопку действия."),
-                    ("screen.quote", "ru", "Здесь вы можете создать цитату на основе последней карты или отправить свой текст."),
-                    ("screen.sticker", "ru", "Здесь вы можете сделать стикер по последней карте или по шаблону с вашим текстом."),
-                    ("screen.games", "ru", "Здесь вы можете выбрать мини-игру. У каждой игры есть ставки, награды и кулдаун."),
-                    ("screen.market", "ru", "Здесь вы можете покупать карточки, выставлять свои лоты и смотреть историю торговли."),
-                    ("screen.marriage", "ru", "Здесь вы можете сделать предложение, проверить входящие и открыть экран вашей пары."),
-                    ("screen.settings", "ru", "Управляйте уведомлениями, языком, приватностью, стилем выдачи карт и безопасным режимом."),
-                ]
-                for key, locale, text in templates:
-                    session.add(BcTextTemplate(key=key, locale=locale, text=text))
+            for key, text in DEFAULT_TEXT_TEMPLATES.items():
+                if await session.get(BcTextTemplate, {"key": key, "locale": "ru"}) is None:
+                    session.add(BcTextTemplate(key=key, locale="ru", text=text))
 
             existing_rp_cat = await session.scalar(select(BcRPCategory).limit(1))
             if existing_rp_cat is None:

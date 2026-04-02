@@ -6,7 +6,7 @@ from typing import Any, Awaitable, Callable
 from aiogram import BaseMiddleware
 from aiogram.types import Message, TelegramObject
 
-logger = logging.getLogger("cards_arena.bot")
+logger = logging.getLogger("antonio_cards.bot")
 
 
 class RequestLoggingMiddleware(BaseMiddleware):
