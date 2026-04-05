@@ -401,7 +401,6 @@ async def render_admin_section_v2(message: Message, section: str) -> bool:
             lines.append('')
             lines.append('Формат редактирования: `user_id|field|value`')
             lines.append('Поля: `coins`, `stars`, `points`, `level`, `exp`, `premium_days`, `nickname`, `cooldown:action`')
-            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
             kb = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(text='✏️ Изменить пользователя', callback_data='act:admin:user:manage:start')],
@@ -413,7 +412,6 @@ async def render_admin_section_v2(message: Message, section: str) -> bool:
         if section == 'cards':
             rows = (await session.scalars(select(BcCard).order_by(BcCard.created_at.desc()).limit(20))).all()
             items = [(str(card.id), f"{card.title} | {card.rarity_key} | {card.series}") for card in rows]
-            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
             kb = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(text='➕ Добавить карточку', callback_data='act:admin:card:create')],
@@ -508,7 +506,6 @@ async def render_admin_section_v2(message: Message, section: str) -> bool:
         if section == 'rp':
             cats = (await session.scalars(select(BcRPCategory).order_by(BcRPCategory.sort))).all()
             acts = (await session.scalars(select(BcRPAction).order_by(BcRPAction.sort).limit(20))).all()
-            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
             rows: list[list[InlineKeyboardButton]] = [
                 [InlineKeyboardButton(text='➕ Категория RP', callback_data='act:admin:rp_category:create')],
                 [InlineKeyboardButton(text='➕ RP-действие', callback_data='act:admin:rp_action:create')],

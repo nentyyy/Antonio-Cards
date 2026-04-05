@@ -12,7 +12,27 @@ from app.db.models import Base
 settings = get_settings()
 engine = create_async_engine(settings.database_url, **build_engine_kwargs(settings.database_url))
 register_sqlite_pragmas(engine, settings.database_url)
-SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+
+class SafeAsyncSession(AsyncSession):
+    @asynccontextmanager
+    async def begin(self):
+        if self.in_transaction():
+            try:
+                yield self
+                if self.in_transaction():
+                    await self.commit()
+            except Exception:
+                if self.in_transaction():
+                    await self.rollback()
+                raise
+            return
+
+        async with super().begin():
+            yield self
+
+
+SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=SafeAsyncSession)
 
 
 @asynccontextmanager
