@@ -6,12 +6,12 @@ from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Message, PreCheckoutQuery, ReplyKeyboardMarkup
 from sqlalchemy import and_, func, select
-from app.bot.context import display_name, ensure_user, h, is_admin_id, safe_callback_answer
-from app.bot.keyboards import MAIN_MENU_BUTTONS, ik_admin_card_wizard, ik_admin_main, ik_bonus_tasks, ik_games_menu, ik_game_stakes, ik_get_card, ik_list_nav, ik_marriage_menu, ik_marriage_proposal, ik_market_lot_actions, ik_market_menu, ik_profile, ik_quote_menu, ik_rp_actions, ik_rp_categories, ik_shop_categories, ik_sticker_menu, ik_nav, main_menu, screen_by_main_menu_button
+from app.bot.context import display_name, ensure_user, h, is_admin_id, safe_callback_answer, template_text
+from app.bot.keyboards import MAIN_MENU_BUTTONS, feature_flag_enabled, ik_admin_card_wizard, ik_admin_main, ik_bonus_tasks, ik_games_menu, ik_game_stakes, ik_get_card, ik_list_nav, ik_marriage_menu, ik_marriage_proposal, ik_market_lot_actions, ik_market_menu, ik_profile, ik_quote_menu, ik_rp_actions, ik_rp_categories, ik_shop_categories, ik_sticker_menu, ik_nav, main_menu, screen_by_main_menu_button, screen_visible_in_menu
 from app.bot.screens.core import handle_start_command, render_help_screen, screen_main, screen_nick, screen_profile
 from app.bot.screens.leaderboards import screen_top, screen_top_metric
 from app.bot.screens.settings import render_settings_screen
-from app.bot.ui_defaults import DEFAULT_BUTTON_LABELS, DEFAULT_TEXT_TEMPLATES
+from app.bot.ui_defaults import DEFAULT_ADMIN_MENU_CONFIG, DEFAULT_BUTTON_LABELS, DEFAULT_INPUT_PLACEHOLDERS, DEFAULT_MAIN_MENU_CONFIG, DEFAULT_TEXT_TEMPLATES
 from app.application.guards import user_action_guard
 from app.config import get_settings
 from app.db.models import BcActiveBooster, BcAuditLog, BcBonusTask, BcBooster, BcCard, BcCardInstance, BcChest, BcChestDrop, BcEvent, BcInputState, BcLimitedSeries, BcMarriageProposal, BcMedia, BcMarketLot, BcPermission, BcRole, BcRolePermission, BcRPAction, BcRPCategory, BcRarity, BcShopCategory, BcShopItem, BcTask, BcUserRole, BcUserState, BcUserSettings, Marriage, User, UserProfile
@@ -93,11 +93,12 @@ async def screen_bonus(message: Message) -> None:
     async with SessionLocal() as session:
         service = BrawlCardsService(session)
         tasks = await service.bonus_tasks()
+        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.bonus', DEFAULT_TEXT_TEMPLATES['screen.bonus'])
         btns = [(t.key, f"{t.emoji} {t.title}") for t in tasks]
     text = (
         f"{h('🎁 Бонус')}\n"
         f"Активных бонусных задач: {len(tasks)}\n"
-        "Откройте задание, выполните условие и отдельно запустите проверку."
+        f"{body}"
     )
     await message.answer(text, reply_markup=ik_bonus_tasks(btns))
 
@@ -108,9 +109,10 @@ async def screen_shop(message: Message) -> None:
     async with SessionLocal() as session:
         service = BrawlCardsService(session)
         categories = await service.shop_categories()
+        body = await template_text(session, message.from_user.id, 'screen.shop', DEFAULT_TEXT_TEMPLATES['screen.shop'])
     lines = [
         h("\U0001f6d2 \u041c\u0430\u0433\u0430\u0437\u0438\u043d"),
-        "\u0417\u0434\u0435\u0441\u044c \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u043e\u0444\u0444\u0435\u0440\u044b, \u0441\u0443\u043d\u0434\u0443\u043a\u0438, \u0431\u0443\u0441\u0442\u0435\u0440\u044b, Premium \u0438 \u0432\u0430\u043b\u044e\u0442\u0430.",
+        body,
         "",
     ]
     if categories:
@@ -175,21 +177,45 @@ async def screen_chest(message: Message) -> None:
     async with SessionLocal() as session:
         service = BrawlCardsService(session)
         chests = await service.chests()
+        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.chest', DEFAULT_TEXT_TEMPLATES['screen.chest'])
         items = [(c.key, f"{c.emoji} {c.title}") for c in chests]
-    text = f"{h('📦 Сундуки')}\nДоступно сундуков: {len(chests)}\nОткройте карточку сундука и посмотрите цену, лимиты и дроп."
+    text = f"{h('📦 Сундуки')}\nДоступно сундуков: {len(chests)}\n{body}"
     await message.answer(text, reply_markup=ik_list_nav(items, prefix='nav:chest', back_to='main'))
 
 async def screen_premium(message: Message) -> None:
+    async with SessionLocal() as session:
+        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.premium', DEFAULT_TEXT_TEMPLATES['screen.premium'])
+        service = BrawlCardsService(session)
+        items = await service.shop_items('premium')
+    lines = [
+        h('💎 Премиум'),
+        body,
+        '',
+        'Что даёт:',
+        '• меньше cooldown на карты и игры',
+        '• выше шанс редких карт',
+        '• больше награда за дроп',
+        '• расширенные RP-возможности',
+        '• визуальные отметки в профиле',
+    ]
+    buttons: list[tuple[str, str]] = []
+    for item in items[:8]:
+        price = f"{item.price_stars}⭐" if item.price_stars is not None else f"{item.price_coins}🪙"
+        buttons.append((item.key, f"{item.title[:24]} • {price}"))
+    if buttons:
+        lines.extend(['', 'Пакеты:'])
+        for item in items[:5]:
+            price_parts: list[str] = []
+            if item.price_stars is not None:
+                price_parts.append(f"{item.price_stars}⭐")
+            if item.price_coins is not None:
+                price_parts.append(f"{item.price_coins}🪙")
+            lines.append(f"• {item.title} — {' / '.join(price_parts)}")
+        await message.answer('\n'.join(lines), reply_markup=ik_list_nav(buttons, prefix='nav:shop_item', back_to='main'))
+        return
     text = (
-        f"{h('💎 Премиум')}\n"
-        "Premium ускоряет игру и убирает лишнее ожидание.\n\n"
-        "Что даёт:\n"
-        "• меньше cooldown на карты и игры\n"
-        "• выше шанс редких карт\n"
-        "• больше награда за дроп\n"
-        "• расширенные RP-возможности\n"
-        "• визуальные отметки в профиле\n\n"
-        "Покупка доступна в разделе Premium магазина."
+        '\n'.join(lines)
+        + "\n\nПакеты пока не настроены. Добавьте premium-товары в магазин через админку."
     )
     await message.answer(text, reply_markup=ik_shop_categories())
 
@@ -199,9 +225,10 @@ async def screen_tasks(message: Message) -> None:
     await ensure_user(message)
     async with SessionLocal() as session:
         service = BrawlCardsService(session)
+        body = await template_text(session, message.from_user.id, 'screen.tasks', DEFAULT_TEXT_TEMPLATES['screen.tasks'])
         async with session.begin():
             tasks = await service.tasks()
-            lines: list[str] = [h('\U0001f4dc \u0417\u0430\u0434\u0430\u043d\u0438\u044f'), '\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u0438 \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u0435 \u043d\u0430\u0433\u0440\u0430\u0434\u0443:']
+            lines: list[str] = [h('\U0001f4dc \u0417\u0430\u0434\u0430\u043d\u0438\u044f'), body, '', 'Выберите задание и получите награду:']
             buttons: list[tuple[str, str]] = []
             for t in tasks:
                 row = await service.get_user_task(message.from_user.id, t)
@@ -215,42 +242,27 @@ async def screen_rp(message: Message) -> None:
     async with SessionLocal() as session:
         service = BrawlCardsService(session)
         categories = await service.rp_categories()
+        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.rp', DEFAULT_TEXT_TEMPLATES['screen.rp'])
         items = [(c.key, f"{c.emoji} {c.title}") for c in categories]
-    text = (
-        f"{h('🎭 RP')}\n"
-        "Выберите категорию RP-действий.\n"
-        "Если действию нужна цель, используйте reply в чате или укажите ID/@username после выбора."
-    )
+    text = f"{h('🎭 RP')}\n{body}"
     await message.answer(text, reply_markup=ik_rp_categories(items))
 
 async def screen_quote(message: Message) -> None:
-    text = (
-        f"{h('💬 Цитата')}\n"
-        "Выберите источник цитаты: последняя карточка или свой текст.\n"
-        "После выбора бот сформирует готовую цитату отдельным сообщением."
-    )
+    async with SessionLocal() as session:
+        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.quote', DEFAULT_TEXT_TEMPLATES['screen.quote'])
+    text = f"{h('💬 Цитата')}\n{body}"
     await message.answer(text, reply_markup=ik_quote_menu())
 
 async def screen_sticker(message: Message) -> None:
-    text = (
-        f"{h('🎨 Стикер')}\n"
-        "Выберите сценарий генерации стикера.\n"
-        "Можно собрать стикер по последней карточке или по своему текстовому шаблону."
-    )
+    async with SessionLocal() as session:
+        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.sticker', DEFAULT_TEXT_TEMPLATES['screen.sticker'])
+    text = f"{h('🎨 Стикер')}\n{body}"
     await message.answer(text, reply_markup=ik_sticker_menu())
 
 async def screen_games(message: Message) -> None:
-    text = (
-        f"{h('🎮 Игры')}\n"
-        "Здесь доступны только реальные Telegram-игры.\n"
-        "Результат берётся из фактического emoji-броска Telegram, а не из локального рандома.\n\n"
-        "Доступно:\n"
-        "• 🎲 Кости\n"
-        "• 🎰 Слоты\n"
-        "• 🎯 Дартс\n"
-        "• ⚽ Футбол\n"
-        "• 🏀 Баскетбол"
-    )
+    async with SessionLocal() as session:
+        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.games', DEFAULT_TEXT_TEMPLATES['screen.games'])
+    text = f"{h('🎮 Игры')}\n{body}"
     await message.answer(text, reply_markup=ik_games_menu())
 
 
@@ -277,11 +289,9 @@ async def render_game_detail(message: Message, game_key: str) -> None:
 
 
 async def screen_market(message: Message) -> None:
-    text = (
-        f"{h('💱 Маркет')}\n"
-        "Здесь продаются карточки игроков.\n"
-        "Откройте покупку, историю или свои лоты через кнопки ниже."
-    )
+    async with SessionLocal() as session:
+        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.market', DEFAULT_TEXT_TEMPLATES['screen.market'])
+    text = f"{h('💱 Маркет')}\n{body}"
     await message.answer(text, reply_markup=ik_market_menu())
 
 
@@ -320,8 +330,7 @@ async def render_market_lot(message: Message, lot_id: int) -> None:
         return
     async with SessionLocal() as session:
         service = BrawlCardsService(session)
-        rows = await service.market_lots(active_only=False, limit=100)
-        target = next(((lot, card, seller) for lot, card, seller in rows if lot.id == lot_id), None)
+        target = await service.market_lot(lot_id)
     if target is None:
         await message.answer(f"{h('💱 Маркет')}\nЛот не найден.", reply_markup=ik_market_menu())
         return
@@ -344,7 +353,9 @@ async def render_market_lot(message: Message, lot_id: int) -> None:
 
 
 async def screen_marriage(message: Message) -> None:
-    text = f"{h('\U0001f48d \u0411\u0440\u0430\u043a')}\n\u0417\u0434\u0435\u0441\u044c \u043c\u043e\u0436\u043d\u043e \u0441\u0434\u0435\u043b\u0430\u0442\u044c \u043f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0435, \u043e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u0440\u043e\u0444\u0438\u043b\u044c \u043f\u0430\u0440\u044b \u0438 \u043f\u043e\u0441\u043c\u043e\u0442\u0440\u0435\u0442\u044c \u0432\u0445\u043e\u0434\u044f\u0449\u0438\u0435 \u0437\u0430\u044f\u0432\u043a\u0438."
+    async with SessionLocal() as session:
+        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.marriage', DEFAULT_TEXT_TEMPLATES['screen.marriage'])
+    text = f"{h('\U0001f48d \u0411\u0440\u0430\u043a')}\n{body}"
     await message.answer(text, reply_markup=ik_marriage_menu())
 
 
@@ -605,11 +616,18 @@ async def render_admin_section_v2(message: Message, section: str) -> bool:
             rewards = await service.get_system_section('rewards')
             links = await service.get_system_section('bonus_links')
             button_labels = await service.get_system_section('button_labels')
+            input_placeholders = await service.get_system_section('input_placeholders')
+            main_menu_items = await service.get_system_section('main_menu_items')
+            admin_menu_items = await service.get_system_section('admin_menu_items')
+            feature_flags = await service.get_system_section('feature_flags')
             welcome_text = await service.get_template_text('screen.welcome', 'ru', DEFAULT_TEXT_TEMPLATES['screen.welcome'])
             help_text = await service.get_template_text('screen.help', 'ru', DEFAULT_TEXT_TEMPLATES['screen.help'])
+            disabled_main = sorted(key for key, value in main_menu_items.items() if isinstance(value, dict) and not bool(value.get('visible', True)))
+            disabled_admin = sorted(key for key, value in admin_menu_items.items() if isinstance(value, dict) and not bool(value.get('visible', True)))
+            feature_off = sorted(key for key, value in feature_flags.items() if value is False)
             lines = [
                 h('⚙️ Настройки бота'),
-                'Здесь меняются таймеры, награды, бонусные ссылки, подписи кнопок и тексты интерфейса.',
+                'Здесь меняются таймеры, награды, меню, feature flags, тексты и рабочие параметры бота.',
                 '',
                 '⏱ Кулдауны:',
                 f"• Карточка: {int(cooldowns.get('brawl_cards') or 0)}с",
@@ -643,6 +661,16 @@ async def render_admin_section_v2(message: Message, section: str) -> bool:
                 f"• main.admin: {button_labels.get('main.admin') or DEFAULT_BUTTON_LABELS['main.admin']}",
                 f"• common.back: {button_labels.get('common.back') or DEFAULT_BUTTON_LABELS['common.back']}",
                 '',
+                '⌨️ Placeholder:',
+                f"• main_menu: {input_placeholders.get('main_menu') or DEFAULT_INPUT_PLACEHOLDERS['main_menu']}",
+                '',
+                '🧭 Главное меню:',
+                f"• скрыто: {', '.join(disabled_main[:4]) if disabled_main else 'нет'}",
+                '🛠 Админ-меню:',
+                f"• скрыто: {', '.join(disabled_admin[:4]) if disabled_admin else 'нет'}",
+                '🚦 Feature flags:',
+                f"• выключено: {', '.join(feature_off[:5]) if feature_off else 'нет'}",
+                '',
                 '👋 Приветствие:',
                 (welcome_text[:180] + '...') if len(welcome_text) > 180 else welcome_text,
                 '',
@@ -655,8 +683,13 @@ async def render_admin_section_v2(message: Message, section: str) -> bool:
                     [InlineKeyboardButton(text='🎁 Изменить награды', callback_data='act:admin:sys:edit:rewards')],
                     [InlineKeyboardButton(text='🔗 Изменить bonus-ссылки', callback_data='act:admin:sys:edit:bonus_links')],
                     [InlineKeyboardButton(text='🔘 Изменить подписи кнопок', callback_data='act:admin:sys:edit:button_labels')],
+                    [InlineKeyboardButton(text='⌨️ Изменить placeholder', callback_data='act:admin:sys:edit:input_placeholders')],
+                    [InlineKeyboardButton(text='🧭 Изменить главное меню', callback_data='act:admin:sys:edit:main_menu_items')],
+                    [InlineKeyboardButton(text='🛠 Изменить admin-меню', callback_data='act:admin:sys:edit:admin_menu_items')],
+                    [InlineKeyboardButton(text='🚦 Изменить feature flags', callback_data='act:admin:sys:edit:feature_flags')],
                     [InlineKeyboardButton(text='👋 Изменить приветствие', callback_data='act:admin:template:edit:screen.welcome')],
                     [InlineKeyboardButton(text='🧭 Изменить help-текст', callback_data='act:admin:template:edit:screen.help')],
+                    [InlineKeyboardButton(text='🧾 Открыть шаблон по ключу', callback_data='act:admin:template:pick')],
                     [InlineKeyboardButton(text='📢 Рассылка', callback_data='nav:admin:broadcast')],
                     [InlineKeyboardButton(text='🔙 Назад', callback_data='nav:admin')],
                 ]
@@ -1363,10 +1396,11 @@ async def screen_events(message: Message) -> None:
     async with SessionLocal() as session:
         service = BrawlCardsService(session)
         events = await service.active_events()
+        body = await template_text(session, message.from_user.id if message.from_user else None, 'screen.events', DEFAULT_TEXT_TEMPLATES['screen.events'])
     if not events:
         await message.answer(f"{h('🎉 Ивенты')}\nСейчас активных событий нет.", reply_markup=ik_shop_categories())
         return
-    lines = [h("🎉 Ивенты"), f"Активных событий: {len(events)}", ""]
+    lines = [h("🎉 Ивенты"), body, "", f"Активных событий: {len(events)}", ""]
     for event in events[:10]:
         ends = event.ends_at.isoformat(timespec="minutes") if event.ends_at else "без срока"
         lines.append(f"• {event.title}\n{event.description[:120]}\nДо: {ends}")
@@ -1377,6 +1411,13 @@ async def screen_events(message: Message) -> None:
 
 
 async def show_screen(message: Message, screen: str) -> None:
+    is_admin = is_admin_id(message.from_user.id if message.from_user else 0)
+    if screen != 'main' and (not feature_flag_enabled(screen, True) or not screen_visible_in_menu(screen, include_admin=is_admin)):
+        await message.answer(
+            f"{h('⛔ Раздел выключен')}\nЭтот раздел сейчас отключён в настройках бота.",
+            reply_markup=user_menu(message.from_user.id if message.from_user else None),
+        )
+        return
     if screen == 'main':
         await screen_main(message)
     elif screen == 'profile':
@@ -2263,6 +2304,7 @@ async def on_action(callback: CallbackQuery) -> None:
             )
             session.add(clone)
             await session.flush()
+            service.invalidate_catalog_cache()
             await respond(f"{h('🃏 Карточка')}\nСоздан дубликат: `{clone.key}`", parse_mode='Markdown', reply_markup=main_menu())
             await screen_admin_card(callback.message, clone.id)
             return
@@ -2284,6 +2326,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('Карточка не найдена.', reply_markup=main_menu())
                 return
             card.is_active = not card.is_active
+            service.invalidate_catalog_cache()
             await respond('Статус активности карточки обновлён.', reply_markup=main_menu())
             return
         if action.startswith('act:admin:card:toggle_sell:'):
@@ -2296,6 +2339,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('Карточка не найдена.', reply_markup=main_menu())
                 return
             card.is_sellable = not card.is_sellable
+            service.invalidate_catalog_cache()
             await respond('Статус продажи карточки обновлён.', reply_markup=main_menu())
             return
         if action.startswith('act:admin:card:delete:'):
@@ -2308,6 +2352,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('Карточка не найдена.', reply_markup=main_menu())
                 return
             await session.delete(card)
+            service.invalidate_catalog_cache()
             await respond('Карточка удалена.', reply_markup=main_menu())
             return
         if action == 'act:admin:rp_category:create':
@@ -2343,6 +2388,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('Категория не найдена.', reply_markup=main_menu())
                 return
             await session.delete(category)
+            service.invalidate_catalog_cache()
             await respond('Категория RP удалена.', reply_markup=main_menu())
             return
         if action == 'act:admin:rp_action:create':
@@ -2378,6 +2424,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('RP-действие не найдено.', reply_markup=main_menu())
                 return
             await session.delete(rp_action)
+            service.invalidate_catalog_cache()
             await respond('RP-действие удалено.', reply_markup=main_menu())
             return
         if action == 'act:admin:rarity:create':
@@ -2405,6 +2452,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('Редкость не найдена.', reply_markup=main_menu())
                 return
             await session.delete(r)
+            service.invalidate_catalog_cache()
             await respond('Редкость удалена.', reply_markup=main_menu())
             return
         if action == 'act:admin:booster:create':
@@ -2432,6 +2480,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('Бустер не найден.', reply_markup=main_menu())
                 return
             await session.delete(b)
+            service.invalidate_catalog_cache()
             await respond('Бустер удалён.', reply_markup=main_menu())
             return
         if action == 'act:admin:chest:create':
@@ -2471,6 +2520,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('Сундук не найден.', reply_markup=main_menu())
                 return
             await session.delete(c)
+            service.invalidate_catalog_cache()
             await respond('Сундук удалён.', reply_markup=main_menu())
             return
         if action == 'act:admin:shop_category:create':
@@ -2506,6 +2556,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('Категория не найдена.', reply_markup=main_menu())
                 return
             await session.delete(category)
+            service.invalidate_catalog_cache()
             await respond('Категория магазина удалена.', reply_markup=main_menu())
             return
         if action == 'act:admin:shop_item:create':
@@ -2553,6 +2604,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('Товар не найден.', reply_markup=main_menu())
                 return
             item.is_active = not item.is_active
+            service.invalidate_catalog_cache()
             await respond('Статус товара обновлён.', reply_markup=main_menu())
             return
         if action.startswith('act:admin:shop_item:delete:'):
@@ -2565,6 +2617,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('Товар не найден.', reply_markup=main_menu())
                 return
             await session.delete(item)
+            service.invalidate_catalog_cache()
             await respond('Товар удалён.', reply_markup=main_menu())
             return
         if action == 'act:admin:task:create':
@@ -2600,6 +2653,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('Задание не найдено.', reply_markup=main_menu())
                 return
             await session.delete(task)
+            service.invalidate_catalog_cache()
             await respond('Задание удалено.', reply_markup=main_menu())
             return
         if action == 'act:admin:event:create':
@@ -2635,6 +2689,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('Ивент не найден.', reply_markup=main_menu())
                 return
             await session.delete(event)
+            service.invalidate_catalog_cache()
             await respond('Ивент удалён.', reply_markup=main_menu())
             return
         if action == 'act:admin:role:create':
@@ -2754,6 +2809,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('Медиа не найдено.', reply_markup=main_menu())
                 return
             await session.delete(media)
+            service.invalidate_catalog_cache()
             await respond('Медиа удалено.', reply_markup=main_menu())
             return
         if action == 'act:admin:user:manage:start':
@@ -2797,6 +2853,39 @@ async def on_action(callback: CallbackQuery) -> None:
                     "Примеры ключей:\n"
                     "`main.profile`, `main.shop`, `main.admin`, `common.back`, `admin.broadcast`, `settings.notifications`"
                 )
+            elif section == 'input_placeholders':
+                prompt = (
+                    f"{h('⌨️ Placeholder')}\n"
+                    "Отправьте строкой:\n"
+                    "`key|text`\n\n"
+                    "Ключи:\n"
+                    "`main_menu`\n\n"
+                    "Если нужен дефолт, отправьте `main_menu|-`."
+                )
+            elif section == 'main_menu_items':
+                prompt = (
+                    f"{h('🧭 Главное меню')}\n"
+                    "Отправьте строкой:\n"
+                    "`key|order|visible(0/1)|admin_only(0/1)`\n\n"
+                    "Пример:\n"
+                    "`main.premium|70|1|0`"
+                )
+            elif section == 'admin_menu_items':
+                prompt = (
+                    f"{h('🛠 Админ-меню')}\n"
+                    "Отправьте строкой:\n"
+                    "`key|order|visible(0/1)`\n\n"
+                    "Пример:\n"
+                    "`admin.broadcast|120|1`"
+                )
+            elif section == 'feature_flags':
+                prompt = (
+                    f"{h('🚦 Feature Flags')}\n"
+                    "Отправьте строкой:\n"
+                    "`screen|enabled(0/1)`\n\n"
+                    "Пример:\n"
+                    "`market|0`"
+                )
             else:
                 prompt = (
                     f"{h('🔗 Bonus-ссылки')}\n"
@@ -2806,6 +2895,17 @@ async def on_action(callback: CallbackQuery) -> None:
                     "`chat`, `subscribe`, `news`, `invite`, `partner`"
                 )
             await respond(prompt, parse_mode='Markdown', reply_markup=main_menu())
+            return
+        if action == 'act:admin:template:pick':
+            if not is_admin_id(callback.from_user.id):
+                await respond('Доступ запрещён.', reply_markup=main_menu())
+                return
+            await service.set_input_state(callback.from_user.id, 'admin_template_pick_form', {'locale': 'ru'})
+            await respond(
+                f"{h('🧾 Шаблон по ключу')}\nОтправьте строкой:\n`template_key|locale`\n\nПример:\n`screen.shop|ru`",
+                parse_mode='Markdown',
+                reply_markup=main_menu(),
+            )
             return
         if action.startswith('act:admin:template:edit:'):
             if not is_admin_id(callback.from_user.id):
@@ -2833,13 +2933,16 @@ async def on_action(callback: CallbackQuery) -> None:
                 reply_markup=main_menu(),
             )
             return
-    await respond('Действие пока не реализовано.', reply_markup=main_menu())
+    await respond('Команда не распознана или уже недоступна.', reply_markup=main_menu())
 
 @router.pre_checkout_query()
 async def on_pre_checkout_query(pre_checkout_query: PreCheckoutQuery) -> None:
     payload = pre_checkout_query.invoice_payload or ""
     if not payload.startswith("xtr_shop:"):
         await pre_checkout_query.answer(ok=False, error_message="\u041d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u044b\u0439 \u043f\u043b\u0430\u0442\u0435\u0436.")
+        return
+    if pre_checkout_query.currency != "XTR":
+        await pre_checkout_query.answer(ok=False, error_message="Оплата доступна только через Telegram Stars.")
         return
     item_key = payload.split(":", maxsplit=1)[1]
     async with SessionLocal() as session:
@@ -2865,17 +2968,38 @@ async def on_successful_payment(message: Message) -> None:
         service = BrawlCardsService(session)
         async with session.begin():
             await service.ensure_user(message.from_user.id, message.from_user.username, message.from_user.first_name)
-            ok, resp = await service.grant_shop_item(
-                message.from_user.id,
-                item_key,
-                source="telegram_stars",
-                payment_charge_id=message.successful_payment.telegram_payment_charge_id,
+            ok, duplicate, resp = await service.process_stars_payment(
+                user_id=message.from_user.id,
+                item_key=item_key,
+                charge_id=message.successful_payment.telegram_payment_charge_id,
                 amount_paid=int(message.successful_payment.total_amount),
+                invoice_payload=payload,
+                provider_charge_id=message.successful_payment.provider_payment_charge_id or None,
             )
-    title = h("Оплата успешна") if ok else h("Ошибка оплаты")
+        if ok and duplicate:
+            body = await service.get_template_text(
+                'premium.payment_duplicate',
+                'ru',
+                DEFAULT_TEXT_TEMPLATES['premium.payment_duplicate'],
+            )
+            title = h("Платёж уже учтён")
+        elif ok:
+            body = await service.get_template_text(
+                'premium.payment_success',
+                'ru',
+                DEFAULT_TEXT_TEMPLATES['premium.payment_success'],
+            )
+            title = h("Оплата успешна")
+        else:
+            body = await service.get_template_text(
+                'premium.payment_error',
+                'ru',
+                DEFAULT_TEXT_TEMPLATES['premium.payment_error'],
+            )
+            title = h("Ошибка оплаты")
     charge_id = message.successful_payment.telegram_payment_charge_id
     await message.answer(
-        f"{title}\n{resp}\n\nСумма: {message.successful_payment.total_amount} XTR\nCharge ID: `{charge_id}`",
+        f"{title}\n{body}\n\n{resp}\n\nСумма: {message.successful_payment.total_amount} XTR\nCharge ID: `{charge_id}`",
         reply_markup=main_menu(is_admin=is_admin_id(message.from_user.id)),
         parse_mode="Markdown",
     )
@@ -3011,6 +3135,7 @@ async def on_state_text_input(message: Message) -> None:
                         category.sort = int(parts[2])
                         category.is_active = admin_parse_bool(parts[3])
                         await service.clear_input_state(message.from_user.id)
+                service.invalidate_catalog_cache()
                 await message.answer(f"{h('🎭 Категория RP')}\nСохранено.", reply_markup=menu)
                 await screen_admin_rp_category(message, category.key)
             except (ValueError, TypeError):
@@ -3071,6 +3196,7 @@ async def on_state_text_input(message: Message) -> None:
                         rp_action.is_active = admin_parse_bool(parts[12])
                         rp_action.templates = [item.strip() for item in parts[13].split(';;') if item.strip()]
                         await service.clear_input_state(message.from_user.id)
+                service.invalidate_catalog_cache()
                 await message.answer(f"{h('🎭 RP-действие')}\nСохранено.", reply_markup=menu)
                 await screen_admin_rp_action(message, rp_action.key)
             except (ValueError, TypeError):
@@ -3112,6 +3238,7 @@ async def on_state_text_input(message: Message) -> None:
                         rarity.available_in_shop = admin_parse_bool(parts[8])
                         rarity.is_active = admin_parse_bool(parts[9])
                         await service.clear_input_state(message.from_user.id)
+                service.invalidate_catalog_cache()
                 await message.answer(f"{h('💎 Редкость')}\nСохранено.", reply_markup=menu)
                 await screen_admin_rarity(message, rarity.key)
             except (ValueError, TypeError):
@@ -3152,6 +3279,7 @@ async def on_state_text_input(message: Message) -> None:
                         booster.max_stack = int(parts[7] or 1)
                         booster.is_available = admin_parse_bool(parts[8])
                         await service.clear_input_state(message.from_user.id)
+                service.invalidate_catalog_cache()
                 await message.answer(f"{h('⚡ Бустер')}\nСохранено.", reply_markup=menu)
                 await screen_admin_booster(message, booster.key)
             except (ValueError, TypeError):
@@ -3194,6 +3322,7 @@ async def on_state_text_input(message: Message) -> None:
                         chest.open_count = int(parts[5] or 1)
                         chest.is_active = admin_parse_bool(parts[6])
                         await service.clear_input_state(message.from_user.id)
+                service.invalidate_catalog_cache()
                 await message.answer(f"{h('📦 Сундук')}\nСохранено.", reply_markup=menu)
                 await screen_admin_chest(message, chest.key)
             except (ValueError, TypeError):
@@ -3219,6 +3348,7 @@ async def on_state_text_input(message: Message) -> None:
                     for rarity_key, weight, min_count, max_count in drops:
                         session.add(BcChestDrop(chest_key=chest.key, rarity_key=rarity_key, weight=weight, min_count=min_count, max_count=max_count, meta={}))
                     await service.clear_input_state(message.from_user.id)
+                service.invalidate_catalog_cache()
                 await message.answer(f"{h('🎯 Дроп сундука')}\nТаблица обновлена.", reply_markup=menu)
                 await screen_admin_chest(message, chest.key)
             except (ValueError, TypeError):
@@ -3254,6 +3384,7 @@ async def on_state_text_input(message: Message) -> None:
                         category.sort = int(parts[2])
                         category.is_active = admin_parse_bool(parts[3])
                         await service.clear_input_state(message.from_user.id)
+                service.invalidate_catalog_cache()
                 await message.answer(f"{h('🛒 Категория магазина')}\nСохранено.", reply_markup=menu)
                 await screen_admin_shop_category(message, category.key)
             except (ValueError, TypeError):
@@ -3307,6 +3438,7 @@ async def on_state_text_input(message: Message) -> None:
                         item.sort = int(sort_raw)
                         item.is_active = admin_parse_bool(active_raw)
                         await service.clear_input_state(message.from_user.id)
+                service.invalidate_catalog_cache()
                 await message.answer(f"{h('🛍 Товар магазина')}\nСохранено.", reply_markup=menu)
                 await screen_admin_shop_item(message, item.id)
             except (ValueError, TypeError):
@@ -3346,6 +3478,7 @@ async def on_state_text_input(message: Message) -> None:
                         task.sort = int(parts[8])
                         task.is_active = admin_parse_bool(parts[9])
                         await service.clear_input_state(message.from_user.id)
+                service.invalidate_catalog_cache()
                 await message.answer(f"{h('📜 Задание')}\nСохранено.", reply_markup=menu)
                 await screen_admin_task(message, task.key)
             except (ValueError, TypeError):
@@ -3382,6 +3515,7 @@ async def on_state_text_input(message: Message) -> None:
                         event.ends_at = admin_parse_optional_datetime(parts[3])
                         event.is_active = admin_parse_bool(parts[4])
                         await service.clear_input_state(message.from_user.id)
+                service.invalidate_catalog_cache()
                 await message.answer(f"{h('🎉 Ивент')}\nСохранено.", reply_markup=menu)
                 await screen_admin_event(message, event.key)
             except (ValueError, TypeError):
@@ -3530,6 +3664,7 @@ async def on_state_text_input(message: Message) -> None:
                         media.url = None if url_raw == '-' else url_raw
                         media.is_active = admin_parse_bool(active_raw)
                         await service.clear_input_state(message.from_user.id)
+                service.invalidate_catalog_cache()
                 await message.answer(f"{h('🖼 Медиа')}\nСохранено.", reply_markup=menu)
                 await screen_admin_media(message, media.id)
             except (ValueError, TypeError):
@@ -3570,15 +3705,20 @@ async def on_state_text_input(message: Message) -> None:
                 return
             payload = dict(state.payload or {})
             section = str(payload.get('section') or '').strip()
-            parts = [part.strip() for part in raw.split('|', maxsplit=1)]
-            if len(parts) != 2:
+            maxsplit = 1
+            if section == 'main_menu_items':
+                maxsplit = 3
+            elif section == 'admin_menu_items':
+                maxsplit = 2
+            parts = [part.strip() for part in raw.split('|', maxsplit=maxsplit)]
+            if len(parts) < 2:
                 await message.answer(
-                    f"{h('⚙️ Системная настройка')}\nНужен формат: `key|value`",
+                    f"{h('⚙️ Системная настройка')}\nНеверный формат для выбранного раздела.",
                     parse_mode='Markdown',
                     reply_markup=menu,
                 )
                 return
-            key, value_raw = parts
+            key = parts[0]
             if not key:
                 await message.answer('Ключ не указан.', reply_markup=menu)
                 return
@@ -3590,13 +3730,74 @@ async def on_state_text_input(message: Message) -> None:
                 return
             try:
                 if section in {'cooldowns', 'rewards'}:
+                    value_raw = parts[1]
                     value: object = int(value_raw)
                 elif section == 'button_labels':
+                    value_raw = parts[1]
                     value = DEFAULT_BUTTON_LABELS[key] if value_raw == '-' else value_raw
                     if not str(value).strip():
                         await message.answer('Текст кнопки не может быть пустым.', reply_markup=menu)
                         return
+                elif section == 'input_placeholders':
+                    if key not in DEFAULT_INPUT_PLACEHOLDERS:
+                        await message.answer('Placeholder с таким ключом не поддерживается.', reply_markup=menu)
+                        return
+                    value_raw = parts[1]
+                    value = DEFAULT_INPUT_PLACEHOLDERS[key] if value_raw == '-' else value_raw
+                    if not str(value).strip():
+                        await message.answer('Placeholder не может быть пустым.', reply_markup=menu)
+                        return
+                elif section == 'feature_flags':
+                    current = await service.get_system_section(section)
+                    if key not in current:
+                        await message.answer('Feature flag не найден.', reply_markup=menu)
+                        return
+                    value = admin_parse_bool(parts[1])
+                elif section == 'main_menu_items':
+                    if key not in DEFAULT_MAIN_MENU_CONFIG:
+                        await message.answer('Элемент главного меню не найден.', reply_markup=menu)
+                        return
+                    if len(parts) != 4:
+                        await message.answer('Нужен формат: `key|order|visible(0/1)|admin_only(0/1)`', parse_mode='Markdown', reply_markup=menu)
+                        return
+                    current = await service.get_system_section(section)
+                    value = {
+                        'order': int(parts[1]),
+                        'visible': admin_parse_bool(parts[2]),
+                        'admin_only': admin_parse_bool(parts[3]),
+                    }
+                    current[key] = value
+                    async with session.begin():
+                        await service.set_system_section(section, current)
+                        await service.clear_input_state(message.from_user.id)
+                    await message.answer(
+                        f"{h('⚙️ Настройки бота')}\nСохранено меню: {key}",
+                        reply_markup=menu,
+                    )
+                    return
+                elif section == 'admin_menu_items':
+                    if key not in DEFAULT_ADMIN_MENU_CONFIG:
+                        await message.answer('Элемент admin-меню не найден.', reply_markup=menu)
+                        return
+                    if len(parts) != 3:
+                        await message.answer('Нужен формат: `key|order|visible(0/1)`', parse_mode='Markdown', reply_markup=menu)
+                        return
+                    current = await service.get_system_section(section)
+                    value = {
+                        'order': int(parts[1]),
+                        'visible': admin_parse_bool(parts[2]),
+                    }
+                    current[key] = value
+                    async with session.begin():
+                        await service.set_system_section(section, current)
+                        await service.clear_input_state(message.from_user.id)
+                    await message.answer(
+                        f"{h('⚙️ Настройки бота')}\nСохранено admin-меню: {key}",
+                        reply_markup=menu,
+                    )
+                    return
                 elif section == 'bonus_links':
+                    value_raw = parts[1]
                     value = '' if value_raw == '-' else value_raw
                 else:
                     await message.answer('Неизвестный раздел настроек.', reply_markup=menu)
@@ -3609,6 +3810,31 @@ async def on_state_text_input(message: Message) -> None:
                 await service.clear_input_state(message.from_user.id)
             await message.answer(
                 f"{h('⚙️ Настройки бота')}\nСохранено: {key} = {updated.get(key)}",
+                reply_markup=menu,
+            )
+            return
+
+        if state.state == 'admin_template_pick_form':
+            if not is_admin_id(message.from_user.id):
+                await message.answer('Доступ запрещён.', reply_markup=menu)
+                return
+            parts = [part.strip() for part in raw.split('|', maxsplit=1)]
+            if len(parts) != 2:
+                await message.answer('Нужен формат: `template_key|locale`', parse_mode='Markdown', reply_markup=menu)
+                return
+            template_key, locale = parts[0], parts[1] or 'ru'
+            if not template_key:
+                await message.answer('Ключ шаблона пустой.', reply_markup=menu)
+                return
+            current_text = await service.get_template_text(
+                template_key,
+                locale,
+                DEFAULT_TEXT_TEMPLATES.get(template_key, ''),
+            )
+            async with session.begin():
+                await service.set_input_state(message.from_user.id, 'admin_template_form', {'key': template_key, 'locale': locale})
+            await message.answer(
+                f"{h('📝 Редактор шаблона')}\nКлюч: {template_key}\nЛокаль: {locale}\n\nОтправьте новый текст одним сообщением.\n\nТекущее значение:\n{current_text}",
                 reply_markup=menu,
             )
             return
@@ -3659,6 +3885,8 @@ async def on_state_text_input(message: Message) -> None:
                 return
             result = await consume_admin_card_wizard_input(session, service, message.from_user.id, raw)
             await session.commit()
+            if result.get('done'):
+                service.invalidate_catalog_cache()
             await message.answer(
                 result['text'],
                 parse_mode=result.get('parse_mode'),
@@ -3688,6 +3916,8 @@ async def on_photo_input(message: Message) -> None:
             payload['data'] = data
             ok, resp, card_id = await save_card_wizard_payload(session, service, message.from_user.id, payload)
             await session.commit()
+            if ok:
+                service.invalidate_catalog_cache()
             await message.answer(resp, reply_markup=menu)
             if ok and card_id:
                 await screen_admin_card(message, int(card_id))
@@ -3704,6 +3934,7 @@ async def on_photo_input(message: Message) -> None:
             card.image_file_id = file_id
             await service.clear_input_state(message.from_user.id)
             await session.commit()
+            service.invalidate_catalog_cache()
             await message.answer('Фото карточки обновлено.', reply_markup=menu)
             await screen_admin_card(message, card_id)
             return
@@ -3720,6 +3951,7 @@ async def on_photo_input(message: Message) -> None:
             media.telegram_file_id = file_id
             await service.clear_input_state(message.from_user.id)
             await session.commit()
+            service.invalidate_catalog_cache()
             await message.answer('Медиа-файл обновлён.', reply_markup=menu)
             await screen_admin_media(message, media_id)
             return

@@ -19,7 +19,16 @@ from app.utils.text import install_aiogram_text_fixes
 async def warm_runtime_settings() -> None:
     async with SessionLocal() as session:
         service = RuntimeSettingsService(session)
-        for section in ("cooldowns", "rewards", "bonus_links", "button_labels", "input_placeholders"):
+        for section in (
+            "cooldowns",
+            "rewards",
+            "bonus_links",
+            "button_labels",
+            "input_placeholders",
+            "main_menu_items",
+            "admin_menu_items",
+            "feature_flags",
+        ):
             await service.get_section(section)
 
 

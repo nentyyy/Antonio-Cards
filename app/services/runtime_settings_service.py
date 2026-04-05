@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.ui_defaults import DEFAULT_BUTTON_LABELS, DEFAULT_INPUT_PLACEHOLDERS
+from app.bot.ui_defaults import (
+    DEFAULT_ADMIN_MENU_CONFIG,
+    DEFAULT_BUTTON_LABELS,
+    DEFAULT_FEATURE_FLAGS,
+    DEFAULT_INPUT_PLACEHOLDERS,
+    DEFAULT_MAIN_MENU_CONFIG,
+)
 from app.config import get_settings
 from app.db.models import BcBonusTask, Setting
 from app.infra.runtime import get_runtime
@@ -33,6 +39,9 @@ SYSTEM_SETTINGS_DEFAULTS: dict[str, dict[str, object]] = {
     "bonus_links": dict(settings.bonus_urls()),
     "button_labels": dict(DEFAULT_BUTTON_LABELS),
     "input_placeholders": dict(DEFAULT_INPUT_PLACEHOLDERS),
+    "main_menu_items": dict(DEFAULT_MAIN_MENU_CONFIG),
+    "admin_menu_items": dict(DEFAULT_ADMIN_MENU_CONFIG),
+    "feature_flags": dict(DEFAULT_FEATURE_FLAGS),
 }
 
 

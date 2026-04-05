@@ -419,6 +419,25 @@ class BcShopItem(Base):
     sort: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
 
 
+class BcStarsPayment(Base):
+    __tablename__ = "bc_stars_payments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    charge_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    provider_charge_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    item_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(16), default="XTR", nullable=False)
+    invoice_payload: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="succeeded", nullable=False)
+    grant_status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
+    grant_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    granted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    raw_payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class BcChest(Base):
     __tablename__ = "bc_chests"
 

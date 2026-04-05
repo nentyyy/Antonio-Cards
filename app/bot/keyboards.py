@@ -14,6 +14,27 @@ from app.infra.runtime import get_runtime
 
 runtime = get_runtime()
 
+ADMIN_MENU_BUTTONS: list[tuple[str, str]] = [
+    ("admin.users", "nav:admin:users"),
+    ("admin.cards", "nav:admin:cards"),
+    ("admin.rarities", "nav:admin:rarities"),
+    ("admin.limited", "nav:admin:limited"),
+    ("admin.boosters", "nav:admin:boosters"),
+    ("admin.shop", "nav:admin:shop"),
+    ("admin.chests", "nav:admin:chests"),
+    ("admin.tasks", "nav:admin:tasks"),
+    ("admin.rp", "nav:admin:rp"),
+    ("admin.tops", "nav:admin:tops"),
+    ("admin.economy", "nav:admin:economy"),
+    ("admin.broadcast", "nav:admin:broadcast"),
+    ("admin.events", "nav:admin:events"),
+    ("admin.permissions", "nav:admin:permissions"),
+    ("admin.logs", "nav:admin:logs"),
+    ("admin.bot_settings", "nav:admin:bot_settings"),
+    ("admin.media", "nav:admin:media"),
+    ("admin.exit", "nav:main"),
+]
+
 
 BTN_PROFILE = DEFAULT_BUTTON_LABELS["main.profile"]
 BTN_GET_CARD = DEFAULT_BUTTON_LABELS["main.get_card"]
@@ -55,13 +76,71 @@ def input_placeholder(key: str, default: str | None = None) -> str:
     return DEFAULT_INPUT_PLACEHOLDERS.get(key, "")
 
 
+def feature_flag_enabled(flag: str, default: bool = True) -> bool:
+    snapshot = runtime.settings_snapshot.get("feature_flags")
+    if isinstance(snapshot, dict):
+        value = snapshot.get(flag)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return bool(value)
+    return default
+
+
+def _safe_int(value: object, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_bool(value: object, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return bool(value)
+    if isinstance(value, str):
+        raw = value.strip().lower()
+        if raw in {"1", "true", "yes", "on", "да"}:
+            return True
+        if raw in {"0", "false", "no", "off", "нет"}:
+            return False
+    return default
+
+
 def main_menu_labels(*, include_admin: bool = True) -> list[str]:
-    labels: list[str] = []
-    for key, _, default in MAIN_MENU_ITEMS:
-        if not include_admin and key == "main.admin":
+    config = runtime.settings_snapshot.get("main_menu_items")
+    labels: list[tuple[int, str]] = []
+    for index, (key, screen, default) in enumerate(MAIN_MENU_ITEMS, start=1):
+        cfg = config.get(key) if isinstance(config, dict) else {}
+        order = _safe_int(cfg.get("order", index * 10), index * 10) if isinstance(cfg, dict) else index * 10
+        visible = _safe_bool(cfg.get("visible", True), True) if isinstance(cfg, dict) else True
+        admin_only = _safe_bool(cfg.get("admin_only", key == "main.admin"), key == "main.admin") if isinstance(cfg, dict) else key == "main.admin"
+        if not visible:
             continue
-        labels.append(button_label(key, default))
-    return labels
+        if admin_only and not include_admin:
+            continue
+        if not feature_flag_enabled(screen, True):
+            continue
+        labels.append((order, button_label(key, default)))
+    labels.sort(key=lambda item: item[0])
+    return [label for _, label in labels]
+
+
+def screen_visible_in_menu(screen: str, *, include_admin: bool = True) -> bool:
+    config = runtime.settings_snapshot.get("main_menu_items")
+    for index, (key, current_screen, _default) in enumerate(MAIN_MENU_ITEMS, start=1):
+        if current_screen != screen:
+            continue
+        cfg = config.get(key) if isinstance(config, dict) else {}
+        visible = _safe_bool(cfg.get("visible", True), True) if isinstance(cfg, dict) else True
+        admin_only = _safe_bool(cfg.get("admin_only", key == "main.admin"), key == "main.admin") if isinstance(cfg, dict) else key == "main.admin"
+        if not visible:
+            return False
+        if admin_only and not include_admin:
+            return False
+        return feature_flag_enabled(screen, True)
+    return True
 
 
 def screen_by_main_menu_button(text: str) -> str | None:
@@ -189,27 +268,18 @@ def ik_shop_categories() -> InlineKeyboardMarkup:
 
 
 def ik_admin_main() -> InlineKeyboardMarkup:
+    config = runtime.settings_snapshot.get("admin_menu_items")
+    items: list[tuple[int, str, str]] = []
+    for index, (key, callback_data) in enumerate(ADMIN_MENU_BUTTONS, start=1):
+        cfg = config.get(key) if isinstance(config, dict) else {}
+        order = _safe_int(cfg.get("order", index * 10), index * 10) if isinstance(cfg, dict) else index * 10
+        visible = _safe_bool(cfg.get("visible", True), True) if isinstance(cfg, dict) else True
+        if not visible:
+            continue
+        items.append((order, button_label(key), callback_data))
+    items.sort(key=lambda item: item[0])
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=button_label("admin.users"), callback_data="nav:admin:users")],
-            [InlineKeyboardButton(text=button_label("admin.cards"), callback_data="nav:admin:cards")],
-            [InlineKeyboardButton(text=button_label("admin.rarities"), callback_data="nav:admin:rarities")],
-            [InlineKeyboardButton(text=button_label("admin.limited"), callback_data="nav:admin:limited")],
-            [InlineKeyboardButton(text=button_label("admin.boosters"), callback_data="nav:admin:boosters")],
-            [InlineKeyboardButton(text=button_label("admin.shop"), callback_data="nav:admin:shop")],
-            [InlineKeyboardButton(text=button_label("admin.chests"), callback_data="nav:admin:chests")],
-            [InlineKeyboardButton(text=button_label("admin.tasks"), callback_data="nav:admin:tasks")],
-            [InlineKeyboardButton(text=button_label("admin.rp"), callback_data="nav:admin:rp")],
-            [InlineKeyboardButton(text=button_label("admin.tops"), callback_data="nav:admin:tops")],
-            [InlineKeyboardButton(text=button_label("admin.economy"), callback_data="nav:admin:economy")],
-            [InlineKeyboardButton(text=button_label("admin.broadcast"), callback_data="nav:admin:broadcast")],
-            [InlineKeyboardButton(text=button_label("admin.events"), callback_data="nav:admin:events")],
-            [InlineKeyboardButton(text=button_label("admin.permissions"), callback_data="nav:admin:permissions")],
-            [InlineKeyboardButton(text=button_label("admin.logs"), callback_data="nav:admin:logs")],
-            [InlineKeyboardButton(text=button_label("admin.bot_settings"), callback_data="nav:admin:bot_settings")],
-            [InlineKeyboardButton(text=button_label("admin.media"), callback_data="nav:admin:media")],
-            [InlineKeyboardButton(text=button_label("admin.exit"), callback_data="nav:main")],
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text=text, callback_data=callback_data)] for _, text, callback_data in items]
     )
 
 

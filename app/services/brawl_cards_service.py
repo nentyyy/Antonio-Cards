@@ -7,7 +7,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.domain.membership import MembershipCheckState
-from app.db.models import BcActiveBooster, BcAuditLog, BcBonusTask, BcBooster, BcCard, BcCardInstance, BcChest, BcChestDrop, BcEvent, BcInputState, BcMedia, BcRarity, BcRPAction, BcRPCategory, BcRPLog, BcShopItem, BcTask, BcTextTemplate, BcUserBonusTask, BcUserRole, BcUserTask, BcUserState, BcUserSettings, BcMarriageProposal, BcMarketLot, Marriage, User, UserProfile
+from app.db.models import BcActiveBooster, BcAuditLog, BcBonusTask, BcBooster, BcCard, BcCardInstance, BcChest, BcChestDrop, BcEvent, BcInputState, BcMedia, BcRarity, BcRPAction, BcRPCategory, BcRPLog, BcShopItem, BcStarsPayment, BcTask, BcTextTemplate, BcUserBonusTask, BcUserRole, BcUserTask, BcUserState, BcUserSettings, BcMarriageProposal, BcMarketLot, Marriage, User, UserProfile
 from app.infra.runtime import get_runtime
 from app.services.cooldown_service import CooldownService, CooldownState
 from app.services.runtime_settings_service import RuntimeSettingsService
@@ -119,6 +119,13 @@ class BrawlCardsService:
 
     async def resolve_bonus_url(self, task: BcBonusTask) -> str:
         return await self.runtime_settings.resolve_bonus_url(task)
+
+    def invalidate_runtime_cache(self, *prefixes: str) -> None:
+        for prefix in prefixes:
+            runtime.content_cache.delete_prefix(prefix)
+
+    def invalidate_catalog_cache(self) -> None:
+        self.invalidate_runtime_cache('catalog:')
 
     async def admin_update_user(self, target_user_id: int, field: str, value: str) -> tuple[bool, str]:
         return await self.user_accounts.admin_update_user(target_user_id, field, value)
@@ -274,43 +281,54 @@ class BrawlCardsService:
         await self.session.flush()
 
 
-    async def grant_shop_item(self, user_id: int, item_key: str, *, source: str='shop', payment_charge_id: str | None=None, amount_paid: int | None=None) -> tuple[bool, str]:
+    async def grant_shop_item(
+        self,
+        user_id: int,
+        item_key: str,
+        *,
+        source: str = 'shop',
+        payment_charge_id: str | None = None,
+        amount_paid: int | None = None,
+        allow_inactive: bool = False,
+    ) -> tuple[bool, str]:
         user = await self.session.scalar(select(User).where(User.id == user_id).with_for_update())
         if user is None:
-            return (False, '\u041f\u0440\u043e\u0444\u0438\u043b\u044c \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d.')
-        item = await self.session.scalar(select(BcShopItem).where(BcShopItem.key == item_key, BcShopItem.is_active.is_(True)))
+            return (False, 'Профиль не найден.')
+        item = await self.session.scalar(select(BcShopItem).where(BcShopItem.key == item_key))
         if item is None:
-            return (False, '\u0422\u043e\u0432\u0430\u0440 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d.')
+            return (False, 'Товар не найден.')
+        if not item.is_active and not allow_inactive:
+            return (False, 'Товар больше не активен.')
         payload = dict(item.payload or {})
         typ = payload.get('type')
         if typ == 'booster':
             booster_key = str(payload.get('booster_key'))
             amount = int(payload.get('amount') or 1)
             await self.add_booster(user_id, booster_key, amount)
-            message = f'\u041f\u043e\u043a\u0443\u043f\u043a\u0430 \u0443\u0441\u043f\u0435\u0448\u043d\u0430: {item.title} x{amount}'
+            message = f'Покупка успешна: {item.title} x{amount}'
         elif typ == 'activate_booster':
             booster_key = str(payload.get('booster_key'))
             stacks = int(payload.get('stacks') or 1)
             await self.activate_booster(user_id, booster_key, stacks=stacks)
-            message = f'\u0410\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u043d\u043e: {item.title}'
+            message = f'Активировано: {item.title}'
         elif typ == 'premium':
             days = int(payload.get('days') or 30)
             now = utcnow()
             premium_until = ensure_utc(user.premium_until)
             base = premium_until if premium_until and premium_until > now else now
             user.premium_until = base + timedelta(days=days)
-            message = f'Premium \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u043d \u043d\u0430 {days} \u0434.'
+            message = f'Premium активирован на {days} д.'
         elif typ == 'currency_exchange':
             frm = payload.get('from')
             to = payload.get('to')
             amount = int(payload.get('amount') or 0)
             if frm == 'stars' and to == 'coins':
                 user.coins += amount
-                message = f'\u041e\u0431\u043c\u0435\u043d \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d: +{amount}\U0001fa99'
+                message = f'Обмен выполнен: +{amount}🪙'
             else:
-                return (False, '\u042d\u0442\u043e\u0442 \u043e\u0431\u043c\u0435\u043d \u043f\u043e\u043a\u0430 \u043d\u0435 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044f.')
+                return (False, 'Этот обмен пока не поддерживается.')
         else:
-            message = '\u041f\u043e\u043a\u0443\u043f\u043a\u0430 \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u0430.'
+            message = 'Покупка выполнена.'
         self.session.add(
             BcAuditLog(
                 actor_id=user_id,
@@ -325,6 +343,80 @@ class BrawlCardsService:
         )
         await self.session.flush()
         return (True, message)
+
+    async def process_stars_payment(
+        self,
+        *,
+        user_id: int,
+        item_key: str,
+        charge_id: str,
+        amount_paid: int,
+        invoice_payload: str,
+        provider_charge_id: str | None = None,
+    ) -> tuple[bool, bool, str]:
+        payment = await self.session.scalar(
+            select(BcStarsPayment).where(BcStarsPayment.charge_id == charge_id).with_for_update()
+        )
+        if payment is not None and payment.grant_status == 'granted':
+            return (True, True, payment.grant_message or 'Платёж уже был обработан.')
+
+        if payment is None:
+            payment = BcStarsPayment(
+                charge_id=charge_id,
+                provider_charge_id=provider_charge_id,
+                user_id=user_id,
+                item_key=item_key,
+                amount=amount_paid,
+                currency='XTR',
+                invoice_payload=invoice_payload,
+                status='succeeded',
+                grant_status='pending',
+                raw_payload={'item_key': item_key, 'invoice_payload': invoice_payload},
+            )
+            self.session.add(payment)
+            await self.session.flush()
+        else:
+            payment.user_id = user_id
+            payment.item_key = item_key
+            payment.amount = amount_paid
+            payment.currency = 'XTR'
+            payment.invoice_payload = invoice_payload
+            payment.provider_charge_id = provider_charge_id
+            payment.status = 'succeeded'
+            payment.raw_payload = {
+                **dict(payment.raw_payload or {}),
+                'item_key': item_key,
+                'invoice_payload': invoice_payload,
+            }
+
+        ok, message = await self.grant_shop_item(
+            user_id,
+            item_key,
+            source='telegram_stars',
+            payment_charge_id=charge_id,
+            amount_paid=amount_paid,
+            allow_inactive=True,
+        )
+        payment.grant_message = message
+        if ok:
+            payment.grant_status = 'granted'
+            payment.granted_at = utcnow()
+            self.session.add(
+                BcAuditLog(
+                    actor_id=user_id,
+                    action='payment.telegram_stars',
+                    payload={
+                        'charge_id': charge_id,
+                        'provider_charge_id': provider_charge_id,
+                        'item_key': item_key,
+                        'amount': amount_paid,
+                    },
+                )
+            )
+        else:
+            payment.grant_status = 'failed'
+        await self.session.flush()
+        return (ok, False, message)
 
     async def add_booster(self, user_id: int, booster_key: str, amount: int) -> None:
         booster = await self.session.get(BcBooster, booster_key)
@@ -742,6 +834,22 @@ class BrawlCardsService:
             q = q.where(or_(BcMarketLot.seller_id == buyer_or_seller_id, BcMarketLot.buyer_id == buyer_or_seller_id))
         rows = (await self.session.execute(q.order_by(BcMarketLot.created_at.desc()).limit(limit))).all()
         return [(lot, card, seller) for lot, card, seller in rows]
+
+    async def market_lot(self, lot_id: int) -> tuple[BcMarketLot, BcCard, User] | None:
+        row = (
+            await self.session.execute(
+                select(BcMarketLot, BcCard, User)
+                .join(BcCardInstance, BcCardInstance.id == BcMarketLot.card_instance_id)
+                .join(BcCard, BcCard.id == BcCardInstance.card_id)
+                .join(User, User.id == BcMarketLot.seller_id)
+                .where(BcMarketLot.id == lot_id)
+                .limit(1)
+            )
+        ).first()
+        if row is None:
+            return None
+        lot, card, seller = row
+        return (lot, card, seller)
 
     async def market_sell_instance(self, user_id: int, instance_id: int, currency: str, price: int) -> tuple[bool, str]:
         if currency not in {'coins', 'stars'}:

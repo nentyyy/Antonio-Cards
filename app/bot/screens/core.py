@@ -94,9 +94,16 @@ async def screen_profile(message: Message) -> None:
         marriage = await session.scalar(
             select(Marriage).where((Marriage.user1_id == user.id) | (Marriage.user2_id == user.id)).limit(1)
         )
+        body = await template_text(
+            session,
+            message.from_user.id,
+            "screen.profile",
+            DEFAULT_TEXT_TEMPLATES["screen.profile"],
+        )
     family_str = "в браке" if marriage else "не в браке"
     text = (
         f"{h('👤 Профиль')}\n"
+        f"{body}\n\n"
         f"🆔 ID: `{user.id}`\n"
         f"🏷 Ник: {display_name(user)}\n"
         f"📅 Регистрация: {user.created_at.date().isoformat()}\n\n"
