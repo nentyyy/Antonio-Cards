@@ -7,7 +7,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Message, PreCheckoutQuery, ReplyKeyboardMarkup
 from sqlalchemy import and_, func, select
 from app.bot.context import display_name, ensure_user, h, is_admin_id, safe_callback_answer, template_text
-from app.bot.keyboards import MAIN_MENU_BUTTONS, feature_flag_enabled, ik_admin_card_wizard, ik_admin_main, ik_bonus_tasks, ik_games_menu, ik_game_stakes, ik_get_card, ik_list_nav, ik_marriage_menu, ik_marriage_proposal, ik_market_lot_actions, ik_market_menu, ik_profile, ik_quote_menu, ik_rp_actions, ik_rp_categories, ik_shop_categories, ik_sticker_menu, ik_nav, main_menu, screen_by_main_menu_button, screen_visible_in_menu
+from app.bot.keyboards import MAIN_MENU_BUTTONS, feature_flag_enabled, ik_admin_card_wizard, ik_admin_main, ik_bonus_tasks, ik_games_menu, ik_game_stakes, ik_get_card, ik_list_nav, ik_marriage_menu, ik_marriage_proposal, ik_market_lot_actions, ik_market_menu, ik_profile, ik_quote_menu, ik_rp_actions, ik_rp_categories, ik_shop_categories, ik_sticker_menu, ik_nav, main_menu, reply_menu_for_chat, screen_by_main_menu_button, screen_visible_in_menu
 from app.bot.screens.core import handle_start_command, render_help_screen, screen_main, screen_nick, screen_profile
 from app.bot.screens.leaderboards import screen_top, screen_top_metric
 from app.bot.screens.settings import render_settings_screen
@@ -22,13 +22,58 @@ from app.utils.sticker import build_card_image
 from app.utils.time import seconds_to_hms
 router = Router(name='brawl_cards_user_bot')
 
+PRIVATE_CHAT_SCREENS = {
+    'profile',
+    'inventory',
+    'stats',
+    'economy',
+    'my_cards',
+    'nick',
+    'shop',
+    'shop_offers',
+    'chest',
+    'premium',
+    'tasks',
+    'market',
+    'marriage',
+    'settings',
+    'admin',
+}
 
-def user_menu(user_id: int | None) -> ReplyKeyboardMarkup:
-    return main_menu(is_admin=is_admin_id(user_id or 0))
+
+def chat_type_of(message: Message | None) -> str | None:
+    return message.chat.type if message and message.chat else None
+
+
+def user_menu(user_id: int | None, chat_type: str | None='private') -> ReplyKeyboardMarkup | None:
+    return reply_menu_for_chat(chat_type, is_admin=is_admin_id(user_id or 0))
+
+
+COOLDOWN_LABELS = {
+    'brawl_cards': 'Карточка',
+    'bonus': 'Бонус',
+    'nick_change': 'Смена ника',
+    'dice': 'Dice',
+    'slot': 'Slot',
+    'darts': 'Darts',
+    'football': 'Football',
+    'basketball': 'Basketball',
+    'guess_rarity': 'Guess rarity',
+    'coinflip': 'Coinflip',
+    'card_battle': 'Card battle',
+    'premium_game_reduction': 'Premium reduction',
+}
+
+
+def cooldown_label(key: str) -> str:
+    return COOLDOWN_LABELS.get(key, key.replace('_', ' '))
 
 
 async def send_rp_result(message: Message, text: str, media: BcMedia | None=None) -> None:
-    reply_markup = user_menu(message.from_user.id if message.from_user else None)
+    reply_markup = user_menu(
+        message.from_user.id if message.from_user else None,
+        chat_type_of(message),
+    )
     if media is None:
         await message.answer(text, reply_markup=reply_markup, parse_mode='Markdown')
         return
@@ -622,23 +667,13 @@ async def render_admin_section_v2(message: Message, section: str) -> bool:
             disabled_main = sorted(key for key, value in main_menu_items.items() if isinstance(value, dict) and not bool(value.get('visible', True)))
             disabled_admin = sorted(key for key, value in admin_menu_items.items() if isinstance(value, dict) and not bool(value.get('visible', True)))
             feature_off = sorted(key for key, value in feature_flags.items() if value is False)
+            cooldown_lines = [f"• {cooldown_label(key)}: {int(value or 0)}с" for key, value in sorted(cooldowns.items())]
             lines = [
                 h('⚙️ Настройки бота'),
                 'Здесь меняются таймеры, награды, меню, feature flags, тексты и рабочие параметры бота.',
                 '',
                 '⏱ Кулдауны:',
-                f"• Карточка: {int(cooldowns.get('brawl_cards') or 0)}с",
-                f"• Бонус: {int(cooldowns.get('bonus') or 0)}с",
-                f"• Смена ника: {int(cooldowns.get('nick_change') or 0)}с",
-                f"• Dice: {int(cooldowns.get('dice') or 0)}с",
-                f"• Slot: {int(cooldowns.get('slot') or 0)}с",
-                f"• Darts: {int(cooldowns.get('darts') or 0)}с",
-                f"• Football: {int(cooldowns.get('football') or 0)}с",
-                f"• Basketball: {int(cooldowns.get('basketball') or 0)}с",
-                f"• Guess rarity: {int(cooldowns.get('guess_rarity') or 0)}с",
-                f"• Coinflip: {int(cooldowns.get('coinflip') or 0)}с",
-                f"• Card battle: {int(cooldowns.get('card_battle') or 0)}с",
-                f"• Premium reduction: {int(cooldowns.get('premium_game_reduction') or 0)}с",
+                *cooldown_lines,
                 '',
                 '🎁 Награды:',
                 f"• Bonus coins: {int(rewards.get('bonus_coins') or 0)}",
@@ -735,7 +770,7 @@ async def screen_admin_card(message: Message, card_id: int) -> None:
                 f"Серия: {card.series}",
                 f"Очки: {card.base_points}",
                 f"Монеты: {card.base_coins}",
-                f"Шанс: {card.drop_weight}",
+                f"Вес внутри редкости: {card.drop_weight}",
                 f"Лимитка: {'да' if card.is_limited else 'нет'}",
                 f"Продажа: {'да' if card.is_sellable else 'нет'}",
                 f"Активна: {'да' if card.is_active else 'нет'}",
@@ -787,10 +822,10 @@ async def screen_admin_rarity(message: Message, rarity_key: str) -> None:
             h('💎 Редкость'),
             f"Key: {rarity.key}",
             f"Название: {rarity.emoji} {rarity.title}",
-            f"Шанс: {rarity.chance}",
+            f"Шанс редкости: {rarity.chance}",
             f"Цвет: {rarity.color}",
-            f"Множитель очков: {rarity.points_mult}",
-            f"Множитель монет: {rarity.coins_mult}",
+            f"Множитель очков при выдаче: {rarity.points_mult}",
+            f"Множитель монет при выдаче: {rarity.coins_mult}",
             f"Drop mode: {rarity.drop_mode}",
             f"В сундуках: {'да' if rarity.available_in_chests else 'нет'}",
             f"В магазине: {'да' if rarity.available_in_shop else 'нет'}",
@@ -1409,10 +1444,17 @@ async def screen_events(message: Message) -> None:
 
 async def show_screen(message: Message, screen: str) -> None:
     is_admin = is_admin_id(message.from_user.id if message.from_user else 0)
+    chat_type = chat_type_of(message)
     if screen != 'main' and (not feature_flag_enabled(screen, True) or not screen_visible_in_menu(screen, include_admin=is_admin)):
         await message.answer(
             f"{h('⛔ Раздел выключен')}\nЭтот раздел сейчас отключён в настройках бота.",
-            reply_markup=user_menu(message.from_user.id if message.from_user else None),
+            reply_markup=user_menu(message.from_user.id if message.from_user else None, chat_type),
+        )
+        return
+    if chat_type != 'private' and screen in PRIVATE_CHAT_SCREENS:
+        await message.answer(
+            f"{h('💬 Чатовый режим')}\nЭтот экран лучше открывать в личке. В чате оставлены быстрые действия: карта, бонусы, топы, RP и игры.",
+            reply_markup=ik_nav('main'),
         )
         return
     if screen == 'main':
@@ -1547,7 +1589,7 @@ def card_wizard_prompt(mode: str, step: str, data: dict) -> str:
         'series': '\u0441\u0435\u0440\u0438\u044e \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438',
         'points': '\u043e\u0447\u043a\u0438 \u0437\u0430 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0443',
         'coins': '\u043c\u043e\u043d\u0435\u0442\u044b \u0437\u0430 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0443',
-        'drop_weight': '\u0448\u0430\u043d\u0441 \u0432\u044b\u043f\u0430\u0434\u0435\u043d\u0438\u044f',
+        'drop_weight': '\u0432\u0435\u0441 \u043a\u0430\u0440\u0442\u044b \u0432\u043d\u0443\u0442\u0440\u0438 \u0440\u0435\u0434\u043a\u043e\u0441\u0442\u0438',
         'is_limited': '\u043b\u0438\u043c\u0438\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u043e\u0441\u0442\u044c',
         'is_sellable': '\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u043e\u0441\u0442\u044c \u043f\u0440\u043e\u0434\u0430\u0436\u0438',
         'is_active': '\u0430\u043a\u0442\u0438\u0432\u043d\u043e\u0441\u0442\u044c \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438',
@@ -1562,7 +1604,7 @@ def card_wizard_prompt(mode: str, step: str, data: dict) -> str:
         'series': '\u041f\u0440\u0438\u043c\u0435\u0440: `Core`',
         'points': '\u0426\u0435\u043b\u043e\u0435 \u0447\u0438\u0441\u043b\u043e.',
         'coins': '\u0426\u0435\u043b\u043e\u0435 \u0447\u0438\u0441\u043b\u043e.',
-        'drop_weight': '\u0427\u0438\u0441\u043b\u043e: `1` \u0438\u043b\u0438 `0.35`.',
+        'drop_weight': '\u0427\u0438\u0441\u043b\u043e \u0432\u0435\u0441\u0430: `1` \u0438\u043b\u0438 `0.35`. \u042d\u0442\u043e \u043d\u0435 \u0448\u0430\u043d\u0441 \u0440\u0435\u0434\u043a\u043e\u0441\u0442\u0438.',
         'is_limited': '\u041d\u0430\u043f\u0438\u0448\u0438\u0442\u0435 `1`/`0` \u0438\u043b\u0438 `\u0434\u0430`/`\u043d\u0435\u0442`.',
         'is_sellable': '\u041d\u0430\u043f\u0438\u0448\u0438\u0442\u0435 `1`/`0` \u0438\u043b\u0438 `\u0434\u0430`/`\u043d\u0435\u0442`.',
         'is_active': '\u041d\u0430\u043f\u0438\u0448\u0438\u0442\u0435 `1`/`0` \u0438\u043b\u0438 `\u0434\u0430`/`\u043d\u0435\u0442`.',
@@ -1945,7 +1987,10 @@ async def on_action(callback: CallbackQuery) -> None:
             async def respond(*args, **kwargs):
                 reply_markup = kwargs.get('reply_markup')
                 if reply_markup is None or isinstance(reply_markup, ReplyKeyboardMarkup):
-                    kwargs['reply_markup'] = user_menu(callback.from_user.id)
+                    kwargs['reply_markup'] = user_menu(
+                        callback.from_user.id,
+                        callback.message.chat.type if callback.message.chat else None,
+                    )
                 await session.commit()
                 return await callback.message.answer(*args, **kwargs)
 
@@ -2429,7 +2474,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 await respond('Доступ запрещён.', reply_markup=main_menu())
                 return
             await service.set_input_state(callback.from_user.id, 'admin_rarity_form', {'mode': 'create'})
-            await respond(f"{h('💎 Добавить редкость')}\nОтправьте одной строкой:\n`key|Название|эмодзи|шанс|цвет|points_mult|coins_mult|drop_mode|in_chests(0/1)|in_shop(0/1)`\nПример:\n`ultra|Ультра|🔶|0.2|#FFAA00|4.2|2.9|normal|1|1`", parse_mode='Markdown', reply_markup=main_menu())
+            await respond(f"{h('💎 Добавить редкость')}\nОтправьте одной строкой:\n`key|Название|эмодзи|шанс_редкости|цвет|points_mult|coins_mult|drop_mode|in_chests(0/1)|in_shop(0/1)`\nПример:\n`ultra|Ультра|🔶|0.2|#FFAA00|4.2|2.9|normal|1|1`", parse_mode='Markdown', reply_markup=main_menu())
             return
         if action.startswith('act:admin:rarity:edit:'):
             if not is_admin_id(callback.from_user.id):
@@ -2437,7 +2482,7 @@ async def on_action(callback: CallbackQuery) -> None:
                 return
             rarity_key = action.split(':', maxsplit=4)[4]
             await service.set_input_state(callback.from_user.id, 'admin_rarity_form', {'mode': 'edit', 'key': rarity_key})
-            await respond(f"{h('💎 Редактировать редкость')}\nКлюч: `{rarity_key}`\nОтправьте строкой:\n`Название|эмодзи|шанс|цвет|points_mult|coins_mult|drop_mode|in_chests(0/1)|in_shop(0/1)|active(0/1)`", parse_mode='Markdown', reply_markup=main_menu())
+            await respond(f"{h('💎 Редактировать редкость')}\nКлюч: `{rarity_key}`\nОтправьте строкой:\n`Название|эмодзи|шанс_редкости|цвет|points_mult|coins_mult|drop_mode|in_chests(0/1)|in_shop(0/1)|active(0/1)`", parse_mode='Markdown', reply_markup=main_menu())
             return
         if action.startswith('act:admin:rarity:delete:'):
             if not is_admin_id(callback.from_user.id):
@@ -2827,12 +2872,15 @@ async def on_action(callback: CallbackQuery) -> None:
             section = action.split(':', maxsplit=4)[4]
             await service.set_input_state(callback.from_user.id, 'admin_system_form', {'section': section})
             if section == 'cooldowns':
+                current = await service.get_system_section('cooldowns')
+                keys_text = ', '.join(f"`{key}`" for key in sorted(current))
                 prompt = (
                     f"{h('⏱ Кулдауны')}\n"
                     "Отправьте строкой:\n"
                     "`key|seconds`\n\n"
                     "Ключи:\n"
-                    "`brawl_cards`, `bonus`, `nick_change`, `dice`, `slot`, `darts`, `football`, `basketball`, `guess_rarity`, `coinflip`, `card_battle`, `premium_game_reduction`"
+                    f"{keys_text}\n\n"
+                    "Для RP общий кулдаун не нужен: он меняется в самой RP-команде."
                 )
             elif section == 'rewards':
                 prompt = (
@@ -2997,7 +3045,7 @@ async def on_successful_payment(message: Message) -> None:
     charge_id = message.successful_payment.telegram_payment_charge_id
     await message.answer(
         f"{title}\n{body}\n\n{resp}\n\nСумма: {message.successful_payment.total_amount} XTR\nCharge ID: `{charge_id}`",
-        reply_markup=main_menu(is_admin=is_admin_id(message.from_user.id)),
+        reply_markup=user_menu(message.from_user.id, chat_type_of(message)),
         parse_mode="Markdown",
     )
 
@@ -3012,7 +3060,7 @@ async def on_state_text_input(message: Message) -> None:
             return
 
         raw = message.text.strip()
-        menu = user_menu(message.from_user.id)
+        menu = user_menu(message.from_user.id, chat_type_of(message))
 
         if state.state == 'nick_wait':
             async with session.begin():
@@ -3897,7 +3945,7 @@ async def on_state_text_input(message: Message) -> None:
 async def on_photo_input(message: Message) -> None:
     if message.from_user is None or not message.photo:
         return
-    menu = user_menu(message.from_user.id)
+    menu = user_menu(message.from_user.id, chat_type_of(message))
     async with SessionLocal() as session:
         service = BrawlCardsService(session)
         state = await service.get_input_state(message.from_user.id)

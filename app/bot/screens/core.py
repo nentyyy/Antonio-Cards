@@ -6,7 +6,7 @@ from aiogram.types import Message
 from sqlalchemy import and_, func, select
 
 from app.bot.context import display_name, ensure_user, ensure_user_background, h, is_admin_id, template_text
-from app.bot.keyboards import ik_nick, ik_profile, main_menu
+from app.bot.keyboards import ik_nick, ik_profile, reply_menu_for_chat
 from app.bot.ui_defaults import DEFAULT_TEXT_TEMPLATES
 from app.db.models import BcCard, BcCardInstance, Marriage, User, UserProfile
 from app.db.session import SessionLocal
@@ -16,6 +16,7 @@ from app.utils.time import utcnow
 
 async def send_start(message: Message) -> None:
     user_id = message.from_user.id if message.from_user else None
+    chat_type = message.chat.type if message.chat else None
     async with SessionLocal() as session:
         body = await template_text(
             session,
@@ -23,15 +24,25 @@ async def send_start(message: Message) -> None:
             "screen.welcome",
             DEFAULT_TEXT_TEMPLATES["screen.welcome"],
         )
-    text = (
-        f"{h('✨ Antonio Cards')}\n"
-        f"{body}\n\n"
-        "Быстрые команды:\n"
-        "/start — главный экран\n"
-        "/help — подсказка по боту\n"
-        "/admin — вход в админ-панель"
+    if chat_type == "private":
+        text = (
+            f"{h('✨ Antonio Cards')}\n"
+            f"{body}\n\n"
+            "Быстрые команды:\n"
+            "/start — главный экран\n"
+            "/help — помощь по боту\n"
+            "/admin — вход в админку"
+        )
+    else:
+        text = (
+            f"{h('✨ Antonio Cards')}\n"
+            "Чатовый режим включён.\n"
+            "Здесь оставлены быстрые действия. Профиль, настройки и админку открывайте в личке."
+        )
+    await message.answer(
+        text,
+        reply_markup=reply_menu_for_chat(chat_type, is_admin=is_admin_id(user_id or 0)),
     )
-    await message.answer(text, reply_markup=main_menu(is_admin=is_admin_id(user_id or 0)))
 
 
 async def handle_start_command(message: Message) -> None:
@@ -49,6 +60,7 @@ async def handle_start_command(message: Message) -> None:
 
 async def render_help_screen(message: Message) -> None:
     user_id = message.from_user.id if message.from_user else None
+    chat_type = message.chat.type if message.chat else None
     async with SessionLocal() as session:
         body = await template_text(
             session,
@@ -56,8 +68,18 @@ async def render_help_screen(message: Message) -> None:
             "screen.help",
             DEFAULT_TEXT_TEMPLATES["screen.help"],
         )
-    is_admin = is_admin_id(user_id or 0)
-    await message.answer(f"{h('🧭 Навигация')}\n{body}", reply_markup=main_menu(is_admin=is_admin))
+    if chat_type == "private":
+        text = f"{h('🧭 Навигация')}\n{body}"
+    else:
+        text = (
+            f"{h('🧭 Навигация')}\n"
+            "В чате лучше использовать быстрые действия: RP, игры, карту, бонусы и топы.\n"
+            "Личные экраны и управление ботом открывайте в ЛС."
+        )
+    await message.answer(
+        text,
+        reply_markup=reply_menu_for_chat(chat_type, is_admin=is_admin_id(user_id or 0)),
+    )
 
 
 async def screen_main(message: Message) -> None:
@@ -111,11 +133,11 @@ async def screen_profile(message: Message) -> None:
         f"📈 Опыт: {profile.exp}\n"
         f"✨ Очки: {user.total_points}\n"
         f"🪙 Монеты: {user.coins}\n"
-        f"⭐ Звезды: {user.stars}\n\n"
+        f"⭐ Звёзды: {user.stars}\n\n"
         f"🃏 Карточки: {cards_total or 0}\n"
         f"🎟 Лимитки: {limited_count or 0}\n"
         f"💎 Premium: {premium_str} ({premium_until})\n"
-        f"🎲 Игры: {profile.games_played} сыграно, {profile.games_won} побед\n"
+        f"🎮 Игры: {profile.games_played} сыграно, {profile.games_won} побед\n"
         f"💱 Маркет: {profile.market_sold} продано, {profile.market_bought} куплено\n"
         f"💍 Семья: {family_str}\n"
         f"✅ Заданий выполнено: {profile.tasks_done}\n"
@@ -131,8 +153,8 @@ async def screen_nick(message: Message) -> None:
         "Правила:\n"
         "• длина 3-24 символа\n"
         "• буквы, цифры, пробел и символы _-[]().,!?:+@#\n"
-        "• эмодзи в нике доступны только с Premium\n"
-        "• кулдаун смены ника настраивается в админке\n\n"
+        "• эмодзи доступны только с Premium\n"
+        "• кулдаун смены ника меняется в админке\n\n"
         "Нажмите кнопку ниже и отправьте новый ник одним сообщением."
     )
     await message.answer(text, reply_markup=ik_nick())

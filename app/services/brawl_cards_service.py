@@ -454,13 +454,58 @@ class BrawlCardsService:
         await self.session.flush()
         return True
 
+    async def _active_card_counts_by_rarity(self) -> dict[str, int]:
+        cache_key = 'catalog:card_counts_by_rarity'
+        cached = runtime.content_cache.get(cache_key)
+        if isinstance(cached, dict):
+            return {str(key): int(value) for key, value in cached.items()}
+
+        rows = (
+            await self.session.execute(
+                select(BcCard.rarity_key, func.count(BcCard.id))
+                .where(BcCard.is_active.is_(True))
+                .group_by(BcCard.rarity_key)
+            )
+        ).all()
+        counts = {str(rarity_key): int(total or 0) for rarity_key, total in rows}
+        runtime.content_cache.set(cache_key, dict(counts), 30.0)
+        return counts
+
+    async def _card_weighted_pool(self, rarity_key: str) -> list[tuple[int, float]]:
+        cache_key = f'catalog:card_pool:{rarity_key}'
+        cached = runtime.content_cache.get(cache_key)
+        if isinstance(cached, list):
+            pool: list[tuple[int, float]] = []
+            for item in cached:
+                if isinstance(item, (list, tuple)) and len(item) == 2:
+                    try:
+                        pool.append((int(item[0]), float(item[1])))
+                    except (TypeError, ValueError):
+                        continue
+            if pool:
+                return pool
+
+        rows = (
+            await self.session.execute(
+                select(BcCard.id, BcCard.drop_weight).where(
+                    and_(BcCard.rarity_key == rarity_key, BcCard.is_active.is_(True))
+                )
+            )
+        ).all()
+        pool = [(int(card_id), max(0.0, float(drop_weight or 0.0))) for card_id, drop_weight in rows]
+        runtime.content_cache.set(cache_key, list(pool), 30.0)
+        return pool
+
     async def choose_rarity_for_drop(self, user: User, use_luck: bool, extra_weight: dict[str, float] | None=None) -> BcRarity | None:
         rarities = await self.rarities()
         if not rarities:
             return None
+        available = await self._active_card_counts_by_rarity()
         weights: list[tuple[str, float]] = []
         for r in rarities:
             if r.drop_mode not in {'normal', 'event'}:
+                continue
+            if int(available.get(r.key) or 0) <= 0:
                 continue
             w = float(r.chance)
             if extra_weight and r.key in extra_weight:
@@ -472,6 +517,8 @@ class BrawlCardsService:
                 if r.key in {'rare', 'epic', 'mythic', 'legendary', 'exclusive'}:
                     w *= 1.35
             weights.append((r.key, w))
+        if not weights:
+            return None
         norm = normalize_weights(weights)
         keys = [k for k, _ in norm]
         ws = [w for _, w in norm]
@@ -497,11 +544,12 @@ class BrawlCardsService:
             extra['limited'] = 0.2
         rarity = await self.choose_rarity_for_drop(user, use_luck=use_luck, extra_weight=extra)
         if rarity is None:
-            return {'ok': False, 'error': 'Нет настроенных редкостей.'}
+            return {'ok': False, 'error': 'Нет активных карт для дропа.'}
         card = await self.random_card(rarity.key)
         if card is None:
-            return {'ok': False, 'error': 'Каталог карт пуст (bc_cards).'}
-        inst = await self.grant_card(user, card, source='brawl', rarity=rarity)
+            return {'ok': False, 'error': 'Для выбранной редкости нет активных карт.'}
+        effective_rarity = await self.session.get(BcRarity, card.rarity_key) or rarity
+        inst = await self.grant_card(user, card, source='brawl', rarity=effective_rarity)
         runtime_cooldowns = await self.get_system_section('cooldowns')
         cooldown_seconds = int(runtime_cooldowns.get('brawl_cards') or settings.brawl_cooldown_seconds)
         if ensure_utc(user.premium_until) and ensure_utc(user.premium_until) > utcnow():
@@ -513,7 +561,7 @@ class BrawlCardsService:
             await self.consume_booster_stack(user_id, 'luck', 1)
         await self.set_cooldown(user_id, 'brawl_cards', cooldown_seconds)
         await self.inc_task_counter(user_id, 'get_cards', 1)
-        return {'ok': True, 'instance_id': inst.id, 'card': {'id': card.id, 'title': card.title, 'description': card.description, 'series': card.series, 'rarity_key': rarity.key, 'rarity_title': rarity.title, 'rarity_emoji': rarity.emoji, 'points': inst.points_awarded, 'coins': inst.coins_awarded, 'is_limited': bool(inst.is_limited), 'obtained_at': inst.obtained_at, 'image_file_id': card.image_file_id}, 'cooldown_seconds': cooldown_seconds}
+        return {'ok': True, 'instance_id': inst.id, 'card': {'id': card.id, 'title': card.title, 'description': card.description, 'series': card.series, 'rarity_key': effective_rarity.key, 'rarity_title': effective_rarity.title, 'rarity_emoji': effective_rarity.emoji, 'points': inst.points_awarded, 'coins': inst.coins_awarded, 'is_limited': bool(inst.is_limited), 'obtained_at': inst.obtained_at, 'image_file_id': card.image_file_id}, 'cooldown_seconds': cooldown_seconds}
 
     async def chest_open(self, user_id: int, chest_key: str) -> dict:
         user = await self.session.scalar(select(User).where(User.id == user_id).with_for_update())
@@ -542,8 +590,9 @@ class BrawlCardsService:
             card = await self.random_card(rarity_key)
             if card is None:
                 continue
-            inst = await self.grant_card(user, card, source=f'chest:{chest_key}', rarity=rarity)
-            results.append({'instance_id': inst.id, 'title': card.title, 'rarity': f'{rarity.emoji} {rarity.title}', 'points': inst.points_awarded, 'coins': inst.coins_awarded})
+            effective_rarity = await self.session.get(BcRarity, card.rarity_key) or rarity
+            inst = await self.grant_card(user, card, source=f'chest:{chest_key}', rarity=effective_rarity)
+            results.append({'instance_id': inst.id, 'title': card.title, 'rarity': f'{effective_rarity.emoji} {effective_rarity.title}', 'points': inst.points_awarded, 'coins': inst.coins_awarded})
         return {'ok': True, 'chest': {'key': chest.key, 'title': chest.title, 'emoji': chest.emoji}, 'drops': results}
 
     async def resolve_user_reference(self, value: str) -> User | None:
@@ -970,34 +1019,21 @@ class BrawlCardsService:
         return [(active, booster) for active, booster in rows]
 
     async def random_card(self, rarity_key: str) -> BcCard | None:
-        cache_key = f'catalog:card_pool:{rarity_key}'
-        card_ids = runtime.content_cache.get(cache_key)
-        if not isinstance(card_ids, list):
-            card_ids = (
-                await self.session.scalars(
-                    select(BcCard.id).where(
-                        and_(BcCard.rarity_key == rarity_key, BcCard.is_active.is_(True))
-                    )
-                )
-            ).all()
-            runtime.content_cache.set(cache_key, list(card_ids), 30.0)
-        if card_ids:
-            return await self.session.get(BcCard, random.choice(card_ids))
-
-        fallback_key = 'catalog:card_pool:all'
-        fallback_ids = runtime.content_cache.get(fallback_key)
-        if not isinstance(fallback_ids, list):
-            fallback_ids = (
-                await self.session.scalars(select(BcCard.id).where(BcCard.is_active.is_(True)))
-            ).all()
-            runtime.content_cache.set(fallback_key, list(fallback_ids), 30.0)
-        if not fallback_ids:
+        pool = await self._card_weighted_pool(rarity_key)
+        if not pool:
             return None
-        return await self.session.get(BcCard, random.choice(fallback_ids))
+        card_ids = [card_id for card_id, _weight in pool]
+        weights = [max(0.0, weight) for _card_id, weight in pool]
+        if sum(weights) <= 0:
+            chosen_id = random.choice(card_ids)
+        else:
+            chosen_id = random.choices(card_ids, weights=weights, k=1)[0]
+        return await self.session.get(BcCard, chosen_id)
 
     async def grant_card(self, user: User, card: BcCard, source: str, rarity: BcRarity) -> BcCardInstance:
         premium_until = ensure_utc(user.premium_until)
         is_premium = bool(premium_until and premium_until > utcnow())
+        effective_rarity = rarity if rarity.key == card.rarity_key else await self.session.get(BcRarity, card.rarity_key)
         points_mult = 1.0
         coins_mult = 1.0
         for active, booster in await self._active_booster_rows(user.id):
@@ -1007,8 +1043,10 @@ class BrawlCardsService:
             elif booster.effect_type == 'points_mult':
                 points_mult *= 1.0 + float(booster.effect_power) * stacks
 
-        points = int(card.base_points * rarity.points_mult * points_mult)
-        coins = int(card.base_coins * rarity.coins_mult * coins_mult)
+        rarity_points_mult = float(effective_rarity.points_mult) if effective_rarity is not None else 1.0
+        rarity_coins_mult = float(effective_rarity.coins_mult) if effective_rarity is not None else 1.0
+        points = int(card.base_points * rarity_points_mult * points_mult)
+        coins = int(card.base_coins * rarity_coins_mult * coins_mult)
         if is_premium:
             coins = int(coins * 1.15)
 

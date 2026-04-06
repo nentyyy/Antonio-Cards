@@ -179,6 +179,12 @@ def main_menu(*, is_admin: bool = False) -> ReplyKeyboardMarkup:
     )
 
 
+def reply_menu_for_chat(chat_type: str | None, *, is_admin: bool = False) -> ReplyKeyboardMarkup | None:
+    if chat_type != "private":
+        return None
+    return main_menu(is_admin=is_admin)
+
+
 def ik_nav(back_to: str = "main") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
